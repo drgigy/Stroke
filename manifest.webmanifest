@@ -1,0 +1,19 @@
+{
+  "name": "Rajagiri StrokeCode",
+  "short_name": "StrokeCode",
+  "description": "Mobile stroke pathway timing and quality dashboard MVP.",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#B5121B",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "./assets/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
