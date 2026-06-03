@@ -111,7 +111,9 @@ let cloudSync = {
   db: null,
   applyingRemote: false,
   status: "Local only",
-  lastSyncAt: ""
+  lastSyncAt: "",
+  error: "",
+  projectId: window.STROKECODE_FIREBASE_CONFIG?.projectId || "--"
 };
 
 setInterval(() => {
@@ -142,12 +144,29 @@ function saveCases() {
 
 function initCloudSync() {
   const config = window.STROKECODE_FIREBASE_CONFIG;
-  if (!config?.apiKey || !config?.projectId || !window.firebase?.initializeApp) return;
+  if (!config?.apiKey || !config?.projectId) {
+    cloudSync.status = "Config missing";
+    cloudSync.error = "firebase-config.js is missing project settings";
+    return;
+  }
+  if (!window.firebase?.initializeApp) {
+    cloudSync.status = "SDK not loaded";
+    cloudSync.error = "Firebase scripts did not load";
+    return;
+  }
   try {
     firebase.initializeApp(config);
     cloudSync.db = firebase.firestore();
     cloudSync.enabled = true;
     cloudSync.status = "Connecting...";
+    cloudSync.error = "";
+    setTimeout(() => {
+      if (cloudSync.status === "Connecting...") {
+        cloudSync.status = "Cloud sync slow";
+        cloudSync.error = "Still waiting for Firestore. Check internet, Firestore rules, and hosted HTTPS URL.";
+        render();
+      }
+    }, 8000);
     cloudSync.db.collection(FIRESTORE_COLLECTION).orderBy("createdAt", "desc").onSnapshot((snapshot) => {
       const remoteCases = snapshot.docs.map((doc) => doc.data());
       cloudSync.applyingRemote = true;
@@ -155,18 +174,21 @@ function initCloudSync() {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(state.cases));
       cloudSync.applyingRemote = false;
       cloudSync.status = "Cloud sync on";
+      cloudSync.error = "";
       cloudSync.lastSyncAt = new Date().toISOString();
       if (state.activeCaseId && !state.cases.some((item) => item.id === state.activeCaseId)) {
         state.activeCaseId = state.cases[0]?.id || null;
       }
       render();
-    }, () => {
+    }, (error) => {
       cloudSync.status = "Cloud sync error";
+      cloudSync.error = `${error.code || "error"}: ${error.message || "Firestore listener failed"}`;
       render();
     });
-  } catch {
+  } catch (error) {
     cloudSync.enabled = false;
-    cloudSync.status = "Local only";
+    cloudSync.status = "Cloud sync error";
+    cloudSync.error = error.message || "Firebase initialization failed";
   }
 }
 
@@ -174,9 +196,11 @@ function syncCasesToCloud() {
   state.cases.forEach((item) => {
     cloudSync.db.collection(FIRESTORE_COLLECTION).doc(item.id).set(item, { merge: true }).catch(() => {
       cloudSync.status = "Cloud sync error";
+      cloudSync.error = "Write failed. Check Firestore rules.";
     }).then(() => {
       if (cloudSync.status !== "Cloud sync error") {
         cloudSync.status = "Cloud sync on";
+        cloudSync.error = "";
         cloudSync.lastSyncAt = new Date().toISOString();
       }
     });
@@ -654,10 +678,50 @@ function moreScreen() {
     h("div", { class: "form-card" }, [
       metricCard("Storage", "Local PWA"),
       metricCard("Firestore", cloudSync.status),
+      metricCard("Firebase project", cloudSync.projectId),
       metricCard("Last cloud sync", cloudSync.lastSyncAt ? formatClock(cloudSync.lastSyncAt) : "--"),
+      cloudSync.error ? metricCard("Sync error", cloudSync.error) : null,
+      h("button", { class: "secondary-btn", onclick: testCloudSync }, "TEST FIREBASE CONNECTION"),
       h("button", { class: "secondary-btn", onclick: exportCases }, "EXPORT CASES JSON"),
       h("button", { class: "danger-btn", style: "background:#fff0f0;color:#e5484d", onclick: clearCases }, "CLEAR LOCAL CASES")
     ])
+  ]);
+}
+
+function testCloudSync() {
+  if (!cloudSync.enabled || !cloudSync.db) {
+    cloudSync.status = cloudSync.status === "Local only" ? "Local only" : cloudSync.status;
+    cloudSync.error = cloudSync.error || "Firebase is not connected in this browser";
+    render();
+    return;
+  }
+  const id = `diag-${Date.now()}`;
+  cloudSync.status = "Testing cloud...";
+  cloudSync.error = "";
+  render();
+  withTimeout(cloudSync.db.collection("_diagnostics").doc(id).set({
+    app: "Rajagiri Stroke Code",
+    createdAt: new Date().toISOString()
+  }).then(() => cloudSync.db.collection("_diagnostics").doc(id).get()), 10000)
+    .then((doc) => {
+      cloudSync.status = doc.exists ? "Cloud sync on" : "Cloud sync error";
+      cloudSync.error = doc.exists ? "" : "Diagnostic document was not readable";
+      cloudSync.lastSyncAt = new Date().toISOString();
+      render();
+    })
+    .catch((error) => {
+      cloudSync.status = "Cloud sync error";
+      cloudSync.error = `${error.code || "error"}: ${error.message || "Diagnostic write/read failed"}`;
+      render();
+    });
+}
+
+function withTimeout(promise, ms) {
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => {
+      setTimeout(() => reject(new Error("Timed out waiting for Firestore response. Use hosted HTTPS URL, check internet, and verify Firestore rules.")), ms);
+    })
   ]);
 }
 
