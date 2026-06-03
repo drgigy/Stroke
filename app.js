@@ -298,6 +298,7 @@ function timelineScreen() {
   if (!item) return homeScreen();
   return h("section", {}, [
     timerCard(item),
+    liveTracker(item),
     h("button", { class: "secondary-btn full-width-action", onclick: () => go("edit", item.id) }, "EDIT CASE DETAILS / NIHSS"),
     accordion("er", "SECTION 1 - ER PHASE", erStages, item),
     accordion("ct", "SECTION 2 - CT PHASE", ctStages, item),
@@ -307,6 +308,53 @@ function timelineScreen() {
     ]),
     h("button", { class: "primary-cta", onclick: () => go("summary", item.id) }, "VIEW CASE SUMMARY")
   ]);
+}
+
+function liveTracker(item) {
+  const trackerSteps = [
+    ["arrival", "Door", "ER"],
+    ["codeStroke", "Code", "ER"],
+    ["neuroInformed", "Neuro", "ER"],
+    ["shiftToCt", "To CT", "ER"],
+    ["reachedCt", "CT", "CT"],
+    ["ncctStarted", "NCCT", "CT"],
+    ["imagingReviewed", "Review", "CT"],
+    ["ivtStarted", "IVT", "Rx"],
+    ["groinPuncture", "Groin", "MT"],
+    ["recanalisation", "Recan", "MT"]
+  ];
+  const completed = trackerSteps.filter(([id]) => item.stages[id]?.time).length;
+  const percent = Math.round((completed / trackerSteps.length) * 100);
+  const nextStep = trackerSteps.find(([id]) => !item.stages[id]?.time);
+  return h("div", { class: "tracker-card" }, [
+    h("div", { class: "tracker-head" }, [
+      h("div", {}, [
+        h("span", {}, "LIVE STROKE TRACKER"),
+        h("strong", {}, nextStep ? `Next: ${nextStep[1]}` : "Pathway complete")
+      ]),
+      h("em", {}, `${percent}%`)
+    ]),
+    h("div", { class: "tracker-progress" }, h("i", { style: `width:${percent}%` })),
+    h("div", { class: "tracker-rail" }, trackerSteps.map(([id, label, group], index) => {
+      const done = Boolean(item.stages[id]?.time);
+      const current = !done && nextStep?.[0] === id;
+      return h("button", {
+        type: "button",
+        class: `tracker-step ${done ? "done" : ""} ${current ? "current" : ""}`,
+        onclick: () => jumpToTrackerStep(id)
+      }, [
+        h("b", {}, done ? "OK" : String(index + 1)),
+        h("span", {}, label),
+        h("small", {}, done ? formatClock(item.stages[id].time) : group)
+      ]);
+    }))
+  ]);
+}
+
+function jumpToTrackerStep(stageId) {
+  if (erStages.some(([id]) => id === stageId)) state.openSections.er = true;
+  if (ctStages.some(([id]) => id === stageId)) state.openSections.ct = true;
+  render();
 }
 
 function editCaseScreen() {
