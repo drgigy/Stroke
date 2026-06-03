@@ -107,7 +107,7 @@ let state = {
 
 setInterval(() => {
   state.tick = Date.now();
-  if (["timeline", "home", "cases"].includes(state.view)) render();
+  if (["timeline", "home", "cases", "dashboard"].includes(state.view)) render();
 }, 1000);
 
 if ("serviceWorker" in navigator) {
@@ -298,7 +298,6 @@ function timelineScreen() {
   if (!item) return homeScreen();
   return h("section", {}, [
     timerCard(item),
-    liveTracker(item),
     h("button", { class: "secondary-btn full-width-action", onclick: () => go("edit", item.id) }, "EDIT CASE DETAILS / NIHSS"),
     accordion("er", "SECTION 1 - ER PHASE", erStages, item),
     accordion("ct", "SECTION 2 - CT PHASE", ctStages, item),
@@ -310,7 +309,7 @@ function timelineScreen() {
   ]);
 }
 
-function liveTracker(item) {
+function liveTracker(item, placement = "compact") {
   const trackerSteps = [
     ["arrival", "Door", "ER"],
     ["codeStroke", "Code", "ER"],
@@ -326,13 +325,17 @@ function liveTracker(item) {
   const completed = trackerSteps.filter(([id]) => item.stages[id]?.time).length;
   const percent = Math.round((completed / trackerSteps.length) * 100);
   const nextStep = trackerSteps.find(([id]) => !item.stages[id]?.time);
-  return h("div", { class: "tracker-card" }, [
+  return h("div", { class: `tracker-card ${placement === "dashboard" ? "dashboard-tracker" : ""}` }, [
     h("div", { class: "tracker-head" }, [
       h("div", {}, [
         h("span", {}, "LIVE STROKE TRACKER"),
-        h("strong", {}, nextStep ? `Next: ${nextStep[1]}` : "Pathway complete")
+        h("strong", {}, `${item.id} | ${item.patientName}`),
+        h("small", {}, nextStep ? `Next: ${nextStep[1]}` : "Pathway complete")
       ]),
-      h("em", {}, `${percent}%`)
+      h("div", { class: "tracker-score" }, [
+        h("em", {}, formatDuration(Date.now() - new Date(item.arrivalTime).getTime())),
+        h("span", {}, `${percent}% complete`)
+      ])
     ]),
     h("div", { class: "tracker-progress" }, h("i", { style: `width:${percent}%` })),
     h("div", { class: "tracker-rail" }, trackerSteps.map(([id, label, group], index) => {
@@ -341,7 +344,7 @@ function liveTracker(item) {
       return h("button", {
         type: "button",
         class: `tracker-step ${done ? "done" : ""} ${current ? "current" : ""}`,
-        onclick: () => jumpToTrackerStep(id)
+        onclick: () => jumpToTrackerStep(item.id, id)
       }, [
         h("b", {}, done ? "OK" : String(index + 1)),
         h("span", {}, label),
@@ -351,10 +354,10 @@ function liveTracker(item) {
   ]);
 }
 
-function jumpToTrackerStep(stageId) {
+function jumpToTrackerStep(caseId, stageId) {
   if (erStages.some(([id]) => id === stageId)) state.openSections.er = true;
   if (ctStages.some(([id]) => id === stageId)) state.openSections.ct = true;
-  render();
+  go("timeline", caseId);
 }
 
 function editCaseScreen() {
@@ -559,6 +562,7 @@ function handlePendingClick(caseId, entry) {
 
 function dashboardScreen() {
   const today = todaysCases();
+  const active = currentCase();
   const statusCounts = today.reduce((acc, item) => {
     const status = caseStatus(item).label;
     acc[status] = (acc[status] || 0) + 1;
@@ -566,6 +570,7 @@ function dashboardScreen() {
   }, {});
   return h("section", {}, [
     title("Quality Dashboard", "Responsive command-center view for 10-day observation."),
+    active ? liveTracker(active, "dashboard") : empty("No active code stroke case."),
     h("div", { class: "grid dashboard-grid" }, [
       metricCard("Total Cases Today", today.length || "0"),
       metricCard("On Track", statusCounts["On Track"] || "0"),

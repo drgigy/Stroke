@@ -409,6 +409,15 @@ button {
   box-shadow: 0 12px 32px rgba(181, 18, 27, 0.08);
 }
 
+.dashboard-tracker {
+  margin: 14px 0 18px;
+  padding: 18px;
+  border-color: #edb8bd;
+  background:
+    linear-gradient(135deg, #fff 0%, #fff7f7 60%, #fff 100%);
+  box-shadow: 0 18px 46px rgba(181, 18, 27, 0.12);
+}
+
 .tracker-head {
   display: flex;
   align-items: center;
@@ -431,15 +440,35 @@ button {
   font-size: 1rem;
 }
 
-.tracker-head em {
+.tracker-head small {
+  display: block;
+  margin-top: 3px;
+  color: var(--purple);
+  font-size: 0.9rem;
+  font-weight: 900;
+}
+
+.tracker-score {
   display: grid;
-  min-width: 48px;
+  justify-items: end;
+  gap: 4px;
+}
+
+.tracker-score em {
+  display: grid;
+  min-width: 112px;
   min-height: 38px;
   place-items: center;
   border-radius: 999px;
   background: #fff1f2;
   color: var(--purple);
   font-style: normal;
+  font-weight: 950;
+}
+
+.tracker-score span {
+  color: var(--muted);
+  font-size: 0.72rem;
   font-weight: 950;
 }
 
@@ -989,6 +1018,23 @@ th {
   .bottom-nav {
     border: 1px solid var(--line);
     border-radius: 18px 18px 0 0;
+  }
+
+  .dashboard-tracker .tracker-rail {
+    grid-template-columns: repeat(10, minmax(0, 1fr));
+  }
+
+  .dashboard-tracker .tracker-step {
+    min-height: 92px;
+  }
+
+  .dashboard-tracker .tracker-step b {
+    width: 34px;
+    height: 34px;
+  }
+
+  .dashboard-tracker .tracker-step span {
+    font-size: 0.86rem;
   }
 }
 
