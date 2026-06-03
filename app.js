@@ -247,7 +247,7 @@ function createScreen() {
             arrival: { time: arrival, mode: arrivalMode === "manual" ? "manual" : "auto", reason: arrivalMode === "manual" ? "Retrospective correction" : "" }
           },
           ivt: { eligible: "", consent: "", notGivenReason: "" },
-          mt: { tici: "" },
+          mt: { evtConsent: "", tici: "" },
           delayReason: "",
           observerName: "",
           signedOffAt: "",
@@ -261,7 +261,7 @@ function createScreen() {
     }, [
       field("Patient Name", h("input", { name: "patientName", placeholder: "Patient name", autocomplete: "off" })),
       h("div", { class: "desktop-two" }, [
-        field("Age", select("age", ageOptions())),
+        field("Age", select("age", ageOptions(), "50")),
         field("Gender", select("gender", ["Male", "Female", "Other"]))
       ]),
       field("UHID (optional)", h("input", { name: "uhid", placeholder: "UHID" })),
@@ -339,7 +339,7 @@ function editCaseScreen() {
     }, [
       field("Patient Name", h("input", { name: "patientName", placeholder: "Patient name", autocomplete: "off", value: item.patientName === "Unnamed Patient" ? "" : item.patientName })),
       h("div", { class: "desktop-two" }, [
-        field("Age", select("age", ageOptions(), item.age || "")),
+        field("Age", select("age", ageOptions(), item.age || "50")),
         field("Gender", select("gender", ["Male", "Female", "Other"], item.gender || "Male"))
       ]),
       field("UHID (optional)", h("input", { name: "uhid", placeholder: "UHID", value: item.uhid || "" })),
@@ -363,7 +363,7 @@ function timerCard(item) {
       h("div", {}, `${item.patientName} | ${item.age || "--"}/${shortGender(item.gender)}`)
     ]),
     h("div", { class: "clinical-strip" }, [
-      h("span", {}, `NIHSS ${item.nihss || "--"}`),
+      h("button", { type: "button", onclick: () => go("edit", item.id), title: "Open NIHSS entry" }, `NIHSS ${item.nihss || "--"}`),
       h("span", {}, item.side || "Unknown"),
       h("span", {}, item.territory || "Unknown")
     ])
@@ -429,6 +429,7 @@ function mtScreen() {
   return h("section", {}, [
     title("Mechanical Thrombectomy", `${item.id} | ${item.patientName}`),
     h("div", { class: "form-card" }, [
+      optionField("EVT Consent Taken", "evtConsent", item.mt.evtConsent, ["Yes", "No"], (value) => updateNested(item.id, "mt", "evtConsent", value)),
       ...mtStages.map(([id, labelText]) => stageRow(item, id, labelText)),
       field("Final TICI Score", select("tici", ["", "0", "1", "2A", "2B", "2C", "3"], item.mt.tici, (value) => updateNested(item.id, "mt", "tici", value))),
       h("button", { class: "secondary-btn", onclick: () => go("timeline", item.id) }, "BACK TO TIMELINE")

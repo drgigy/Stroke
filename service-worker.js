@@ -1,11 +1,14 @@
-const CACHE_NAME = "rajagiri-strokecode-v15";
+const CACHE_NAME = "rajagiri-strokecode-v18";
 const ASSETS = [
   "./",
   "./index.html",
   "./styles.css",
   "./app.js",
   "./manifest.webmanifest",
-  "./assets/icon.svg"
+  "./assets/icon.svg",
+  "./assets/icon-180.png",
+  "./assets/icon-192.png",
+  "./assets/icon-512.png"
 ];
 
 self.addEventListener("install", (event) => {
