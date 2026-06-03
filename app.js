@@ -110,7 +110,8 @@ let cloudSync = {
   enabled: false,
   db: null,
   applyingRemote: false,
-  status: "Local only"
+  status: "Local only",
+  lastSyncAt: ""
 };
 
 setInterval(() => {
@@ -146,13 +147,15 @@ function initCloudSync() {
     firebase.initializeApp(config);
     cloudSync.db = firebase.firestore();
     cloudSync.enabled = true;
-    cloudSync.status = "Cloud sync on";
+    cloudSync.status = "Connecting...";
     cloudSync.db.collection(FIRESTORE_COLLECTION).orderBy("createdAt", "desc").onSnapshot((snapshot) => {
       const remoteCases = snapshot.docs.map((doc) => doc.data());
       cloudSync.applyingRemote = true;
       state.cases = remoteCases;
       localStorage.setItem(STORAGE_KEY, JSON.stringify(state.cases));
       cloudSync.applyingRemote = false;
+      cloudSync.status = "Cloud sync on";
+      cloudSync.lastSyncAt = new Date().toISOString();
       if (state.activeCaseId && !state.cases.some((item) => item.id === state.activeCaseId)) {
         state.activeCaseId = state.cases[0]?.id || null;
       }
@@ -171,6 +174,11 @@ function syncCasesToCloud() {
   state.cases.forEach((item) => {
     cloudSync.db.collection(FIRESTORE_COLLECTION).doc(item.id).set(item, { merge: true }).catch(() => {
       cloudSync.status = "Cloud sync error";
+    }).then(() => {
+      if (cloudSync.status !== "Cloud sync error") {
+        cloudSync.status = "Cloud sync on";
+        cloudSync.lastSyncAt = new Date().toISOString();
+      }
     });
   });
 }
@@ -646,6 +654,7 @@ function moreScreen() {
     h("div", { class: "form-card" }, [
       metricCard("Storage", "Local PWA"),
       metricCard("Firestore", cloudSync.status),
+      metricCard("Last cloud sync", cloudSync.lastSyncAt ? formatClock(cloudSync.lastSyncAt) : "--"),
       h("button", { class: "secondary-btn", onclick: exportCases }, "EXPORT CASES JSON"),
       h("button", { class: "danger-btn", style: "background:#fff0f0;color:#e5484d", onclick: clearCases }, "CLEAR LOCAL CASES")
     ])
@@ -939,8 +948,11 @@ function todaysCases() {
 }
 
 function nextCaseId() {
-  const next = state.cases.length + 1;
-  return `SC-${String(next).padStart(3, "0")}`;
+  const now = new Date();
+  const day = now.toISOString().slice(2, 10).replaceAll("-", "");
+  const time = [now.getHours(), now.getMinutes(), now.getSeconds()].map((value) => String(value).padStart(2, "0")).join("");
+  const suffix = Math.random().toString(36).slice(2, 5).toUpperCase();
+  return `SC-${day}-${time}-${suffix}`;
 }
 
 function ivtStatus(item) {
