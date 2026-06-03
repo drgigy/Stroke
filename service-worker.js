@@ -1,9 +1,10 @@
-const CACHE_NAME = "rajagiri-strokecode-v20";
+const CACHE_NAME = "rajagiri-strokecode-v22";
 const ASSETS = [
   "./",
   "./index.html",
   "./styles.css",
   "./app.js",
+  "./firebase-config.js",
   "./manifest.webmanifest",
   "./assets/icon.svg",
   "./assets/icon-180.png",

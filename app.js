@@ -1,4 +1,5 @@
 const STORAGE_KEY = "rajagiri-strokecode-cases-v1";
+const FIRESTORE_COLLECTION = "strokeCases";
 
 const erStages = [
   ["arrival", "Arrival at ER"],
@@ -105,6 +106,13 @@ let state = {
   tick: Date.now()
 };
 
+let cloudSync = {
+  enabled: false,
+  db: null,
+  applyingRemote: false,
+  status: "Local only"
+};
+
 setInterval(() => {
   state.tick = Date.now();
   if (["timeline", "home", "cases", "dashboard"].includes(state.view)) render();
@@ -113,6 +121,8 @@ setInterval(() => {
 if ("serviceWorker" in navigator) {
   navigator.serviceWorker.register("./service-worker.js").catch(() => {});
 }
+
+initCloudSync();
 
 function loadCases() {
   try {
@@ -124,7 +134,45 @@ function loadCases() {
 
 function saveCases() {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(state.cases));
-  // Firestore hook for V1.1: replace this with addDoc/updateDoc calls after Firebase config is supplied.
+  if (cloudSync.enabled && !cloudSync.applyingRemote) {
+    syncCasesToCloud();
+  }
+}
+
+function initCloudSync() {
+  const config = window.STROKECODE_FIREBASE_CONFIG;
+  if (!config?.apiKey || !config?.projectId || !window.firebase?.initializeApp) return;
+  try {
+    firebase.initializeApp(config);
+    cloudSync.db = firebase.firestore();
+    cloudSync.enabled = true;
+    cloudSync.status = "Cloud sync on";
+    cloudSync.db.collection(FIRESTORE_COLLECTION).orderBy("createdAt", "desc").onSnapshot((snapshot) => {
+      const remoteCases = snapshot.docs.map((doc) => doc.data());
+      cloudSync.applyingRemote = true;
+      state.cases = remoteCases;
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(state.cases));
+      cloudSync.applyingRemote = false;
+      if (state.activeCaseId && !state.cases.some((item) => item.id === state.activeCaseId)) {
+        state.activeCaseId = state.cases[0]?.id || null;
+      }
+      render();
+    }, () => {
+      cloudSync.status = "Cloud sync error";
+      render();
+    });
+  } catch {
+    cloudSync.enabled = false;
+    cloudSync.status = "Local only";
+  }
+}
+
+function syncCasesToCloud() {
+  state.cases.forEach((item) => {
+    cloudSync.db.collection(FIRESTORE_COLLECTION).doc(item.id).set(item, { merge: true }).catch(() => {
+      cloudSync.status = "Cloud sync error";
+    });
+  });
 }
 
 function h(tag, attrs = {}, children = []) {
@@ -597,7 +645,7 @@ function moreScreen() {
     title("More", "Configuration"),
     h("div", { class: "form-card" }, [
       metricCard("Storage", "Local PWA"),
-      metricCard("Firestore", "Ready for config"),
+      metricCard("Firestore", cloudSync.status),
       h("button", { class: "secondary-btn", onclick: exportCases }, "EXPORT CASES JSON"),
       h("button", { class: "danger-btn", style: "background:#fff0f0;color:#e5484d", onclick: clearCases }, "CLEAR LOCAL CASES")
     ])
