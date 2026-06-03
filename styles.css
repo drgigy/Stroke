@@ -610,6 +610,83 @@ button {
   font-weight: 900;
 }
 
+.full-width-action {
+  width: 100%;
+  margin: 0 0 12px;
+}
+
+.signoff-card {
+  display: grid;
+  gap: 12px;
+  margin-top: 14px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.signoff-card .primary-cta {
+  margin: 0;
+}
+
+.missing-panel {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid #ffd89a;
+  border-radius: 8px;
+  background: #fff8ea;
+}
+
+.missing-panel.show {
+  border-color: #f5a3a8;
+  background: #fff1f2;
+}
+
+.missing-panel strong {
+  color: var(--orange);
+  font-size: 0.9rem;
+}
+
+.missing-panel.show strong {
+  color: var(--red);
+}
+
+.missing-panel span,
+.pending-link {
+  display: inline-flex;
+  min-height: 28px;
+  align-items: center;
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: #fff;
+  color: var(--ink);
+  font-size: 0.82rem;
+  font-weight: 850;
+  text-align: left;
+}
+
+.pending-link {
+  justify-content: flex-start;
+  border: 1px solid #ffe3e5;
+  cursor: pointer;
+}
+
+.pending-link:active {
+  background: #fff1f2;
+  color: var(--purple);
+}
+
+.complete-panel {
+  padding: 12px;
+  border: 1px solid #bfead4;
+  border-radius: 8px;
+  background: #f0fbf5;
+  color: var(--green);
+  font-size: 0.88rem;
+  font-weight: 900;
+}
+
 .empty {
   padding: 22px;
   border: 1px dashed #cfd4df;

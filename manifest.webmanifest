@@ -1,7 +1,7 @@
 {
-  "name": "Rajagiri StrokeCode",
-  "short_name": "StrokeCode",
-  "description": "Mobile stroke pathway timing and quality dashboard MVP.",
+  "name": "Rajagiri Stroke Code",
+  "short_name": "Stroke Code",
+  "description": "Mobile stroke pathway timing and quality dashboard.",
   "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",

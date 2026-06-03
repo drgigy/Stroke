@@ -42,6 +42,17 @@ const metricDefs = [
 
 const delayReasons = ["Transfer Delay", "Notification Delay", "CT Busy", "Consent Delay", "Cathlab Delay", "Other"];
 const manualReasons = ["Missed entry", "Observer delayed", "Retrospective correction", "Network issue", "Other"];
+const signoffStageRequirements = [
+  ["arrival", "Arrival at ER", "er"],
+  ["codeStroke", "Code Stroke Activated", "er"],
+  ["neuroInformed", "Neurology Informed", "er"],
+  ["ctInformed", "CT Informed", "er"],
+  ["shiftToCt", "Shift to CT", "er"],
+  ["reachedCt", "Reached CT", "ct"],
+  ["ncctStarted", "NCCT Started", "ct"],
+  ["ncctCompleted", "NCCT Completed", "ct"],
+  ["imagingReviewed", "Imaging Reviewed", "ct"]
+];
 const nihssGroups = [
   {
     title: "Level of Consciousness",
@@ -143,9 +154,9 @@ function topbar() {
   return h("header", { class: "topbar" }, [
     h("div", { class: "brand" }, [
       h("div", { class: "brand-mark" }, "SC"),
-      h("div", {}, [h("h1", {}, "Rajagiri StrokeCode"), h("p", {}, "Stroke pathway timing MVP")])
+      h("div", {}, [h("h1", {}, "Rajagiri Stroke Code")])
     ]),
-    active ? h("span", { class: `tag ${caseStatus(active).className}` }, caseStatus(active).label) : h("span", { class: "status-pill" }, "PWA READY")
+    active ? h("span", { class: `tag ${caseStatus(active).className}` }, caseStatus(active).label) : null
   ]);
 }
 
@@ -164,6 +175,7 @@ function navButton(view, label) {
 
 function screen() {
   if (state.view === "create") return createScreen();
+  if (state.view === "edit") return editCaseScreen();
   if (state.view === "timeline") return timelineScreen();
   if (state.view === "ivt") return ivtScreen();
   if (state.view === "mt") return mtScreen();
@@ -204,16 +216,18 @@ function homeScreen() {
 function createScreen() {
   const now = toLocalInput(new Date());
   return h("section", {}, [
-    title("Create Stroke Case", "Minimal typing. Timer starts as soon as the case is created."),
+    title("Create Stroke Case", ""),
     h("form", {
       class: "form-card",
+      novalidate: true,
       onsubmit: (event) => {
         event.preventDefault();
         const form = new FormData(event.currentTarget);
         const arrivalMode = form.get("arrivalMode");
         const arrival = arrivalMode === "manual" ? new Date(form.get("arrivalTime")).toISOString() : new Date().toISOString();
         const nihssBreakdown = getNihssItems().reduce((scores, item) => {
-          scores[item[0]] = Number(form.get(`nihss_${item[0]}`) || 0);
+          const value = form.get(`nihss_${item[0]}`);
+          scores[item[0]] = value === "" ? "" : Number(value);
           return scores;
         }, {});
         const newCase = {
@@ -234,7 +248,10 @@ function createScreen() {
           },
           ivt: { eligible: "", consent: "", notGivenReason: "" },
           mt: { tici: "" },
-          delayReason: ""
+          delayReason: "",
+          observerName: "",
+          signedOffAt: "",
+          signoffAttempted: false
         };
         state.cases.unshift(newCase);
         state.activeCaseId = newCase.id;
@@ -242,7 +259,7 @@ function createScreen() {
         go("timeline", newCase.id);
       }
     }, [
-      field("Patient Name", h("input", { name: "patientName", placeholder: "Patient name", autocomplete: "off", required: true })),
+      field("Patient Name", h("input", { name: "patientName", placeholder: "Patient name", autocomplete: "off" })),
       h("div", { class: "desktop-two" }, [
         field("Age", select("age", ageOptions())),
         field("Gender", select("gender", ["Male", "Female", "Other"]))
@@ -252,7 +269,7 @@ function createScreen() {
       h("div", { class: "section-heading compact-heading" }, [h("h2", {}, "Clinical Snapshot")]),
       field("NIHSS Score", nihssCalculator()),
       field("Side", choiceButtons("side", ["Left", "Right", "Bilateral", "Unknown"], "Unknown")),
-      field("Suspected Territory", choiceButtons("territory", ["MCA", "ACA", "PCA", "Basilar", "Unknown"], "Unknown")),
+      field("Suspected Territory", choiceButtons("territory", ["MCA", "ACA", "PCA", "Basilar", "Carotid", "Unknown"], "Unknown")),
       field("Arrival Time", h("div", {}, [
         h("div", { class: "segmented" }, [
           h("button", { type: "button", class: "active", onclick: toggleArrival }, "Auto now"),
@@ -281,6 +298,7 @@ function timelineScreen() {
   if (!item) return homeScreen();
   return h("section", {}, [
     timerCard(item),
+    h("button", { class: "secondary-btn full-width-action", onclick: () => go("edit", item.id) }, "EDIT CASE DETAILS / NIHSS"),
     accordion("er", "SECTION 1 - ER PHASE", erStages, item),
     accordion("ct", "SECTION 2 - CT PHASE", ctStages, item),
     h("div", { class: "section-card" }, [
@@ -288,6 +306,51 @@ function timelineScreen() {
       pathwayCard("MECHANICAL THROMBECTOMY", mtStatus(item), () => go("mt", item.id))
     ]),
     h("button", { class: "primary-cta", onclick: () => go("summary", item.id) }, "VIEW CASE SUMMARY")
+  ]);
+}
+
+function editCaseScreen() {
+  const item = currentCase();
+  if (!item) return homeScreen();
+  return h("section", {}, [
+    title("Edit Case Details", `${item.id} | Timer continues in background`),
+    h("form", {
+      class: "form-card",
+      novalidate: true,
+      onsubmit: (event) => {
+        event.preventDefault();
+        const form = new FormData(event.currentTarget);
+        item.patientName = form.get("patientName") || "Unnamed Patient";
+        item.age = form.get("age") || "";
+        item.gender = form.get("gender") || "";
+        item.uhid = form.get("uhid") || "";
+        item.suspicion = form.get("suspicion") || "Ischemic Stroke";
+        item.nihssBreakdown = getNihssItems().reduce((scores, nihssItem) => {
+          const value = form.get(`nihss_${nihssItem[0]}`);
+          scores[nihssItem[0]] = value === "" ? "" : Number(value);
+          return scores;
+        }, {});
+        item.nihss = form.get("nihss") || "";
+        item.side = form.get("side") || "Unknown";
+        item.territory = form.get("territory") || "Unknown";
+        saveCases();
+        go("timeline", item.id);
+      }
+    }, [
+      field("Patient Name", h("input", { name: "patientName", placeholder: "Patient name", autocomplete: "off", value: item.patientName === "Unnamed Patient" ? "" : item.patientName })),
+      h("div", { class: "desktop-two" }, [
+        field("Age", select("age", ageOptions(), item.age || "")),
+        field("Gender", select("gender", ["Male", "Female", "Other"], item.gender || "Male"))
+      ]),
+      field("UHID (optional)", h("input", { name: "uhid", placeholder: "UHID", value: item.uhid || "" })),
+      field("Stroke Suspicion", choiceButtons("suspicion", ["Ischemic Stroke", "LVO Suspected", "Hemorrhage", "Unknown"], item.suspicion || "Ischemic Stroke")),
+      h("div", { class: "section-heading compact-heading" }, [h("h2", {}, "Clinical Snapshot")]),
+      field("NIHSS Score", nihssCalculator(item.nihssBreakdown || {})),
+      field("Side", choiceButtons("side", ["Left", "Right", "Bilateral", "Unknown"], item.side || "Unknown")),
+      field("Suspected Territory", choiceButtons("territory", ["MCA", "ACA", "PCA", "Basilar", "Carotid", "Unknown"], item.territory || "Unknown")),
+      h("button", { class: "primary-cta", type: "submit" }, "SAVE DETAILS"),
+      h("button", { class: "secondary-btn", type: "button", onclick: () => go("timeline", item.id) }, "BACK TO TIMELINE")
+    ])
   ]);
 }
 
@@ -376,6 +439,7 @@ function mtScreen() {
 function summaryScreen() {
   const item = currentCase();
   if (!item) return homeScreen();
+  const missing = signoffMissingItems(item);
   return h("section", {}, [
     title("Case Summary", `${item.id} | ${item.patientName}`),
     h("div", { class: "grid summary-grid", style: "margin:14px 0" }, [
@@ -390,11 +454,58 @@ function summaryScreen() {
       render();
     })),
     h("div", { class: "metrics-list" }, metricDefs.map((def) => metricLine(item, def))),
+    signoffPanel(item, missing),
     h("div", { class: "grid", style: "margin-top:14px" }, [
       h("button", { class: "primary-cta", onclick: () => go("timeline", item.id) }, "VIEW FULL TIMELINE"),
       h("button", { class: "secondary-btn", onclick: () => go("home") }, "BACK TO HOME")
     ])
   ]);
+}
+
+function signoffPanel(item, missing) {
+  return h("form", {
+    class: "signoff-card",
+    onsubmit: (event) => {
+      event.preventDefault();
+      const form = new FormData(event.currentTarget);
+      item.observerName = form.get("observerName").trim();
+      item.signoffAttempted = true;
+      const currentMissing = signoffMissingItems(item);
+      item.signedOffAt = currentMissing.length ? "" : new Date().toISOString();
+      saveCases();
+      render();
+    }
+  }, [
+    h("div", { class: "section-heading compact-heading" }, [h("h2", {}, "Final Sign-off")]),
+    field("Data entered by", h("input", { name: "observerName", placeholder: "Name of observer / intern / coordinator", value: item.observerName || "" })),
+    missing.length
+      ? h("div", { class: `missing-panel ${item.signoffAttempted ? "show" : ""}` }, [
+          h("strong", {}, "Mandatory items pending"),
+          ...missing.map((entry) => h("button", {
+            type: "button",
+            class: "pending-link",
+            onclick: () => handlePendingClick(item.id, entry)
+          }, entry.label))
+        ])
+      : h("div", { class: "complete-panel" }, item.signedOffAt ? `Signed off at ${formatClock(item.signedOffAt)}` : "All mandatory items completed"),
+    h("button", { class: "primary-cta", type: "submit" }, item.signedOffAt ? "UPDATE SIGN-OFF" : "SIGN OFF CASE")
+  ]);
+}
+
+function handlePendingClick(caseId, entry) {
+  if (entry.type === "observer") {
+    const input = document.querySelector("[name='observerName']");
+    if (input) input.focus();
+    return;
+  }
+  if (entry.type === "details") {
+    go("edit", caseId);
+    return;
+  }
+  if (entry.type === "stage") {
+    state.openSections[entry.section] = true;
+    go("timeline", caseId);
+  }
 }
 
 function dashboardScreen() {
@@ -429,7 +540,7 @@ function casesScreen() {
 
 function moreScreen() {
   return h("section", {}, [
-    title("More", "MVP configuration"),
+    title("More", "Configuration"),
     h("div", { class: "form-card" }, [
       metricCard("Storage", "Local PWA"),
       metricCard("Firestore", "Ready for config"),
@@ -511,23 +622,29 @@ function getNihssItems() {
   return nihssGroups.flatMap((group) => group.items);
 }
 
-function nihssCalculator() {
+function nihssCalculator(breakdown = {}) {
+  const existingValues = Object.values(breakdown).filter((value) => value !== "" && value != null);
+  const initialTotal = existingValues.reduce((sum, value) => sum + Number(value || 0), 0);
+  const hasInitialScore = existingValues.length > 0;
   return h("div", { class: "nihss-card" }, [
-    h("input", { type: "hidden", name: "nihss", value: "0" }),
+    h("input", { type: "hidden", name: "nihss", value: hasInitialScore ? String(initialTotal) : "" }),
     h("div", { class: "nihss-total-card" }, [
       h("span", {}, "TOTAL NIHSS"),
-      h("strong", { class: "nihss-total" }, "0"),
-      h("em", { class: "nihss-category" }, nihssCategory(0)),
+      h("strong", { class: "nihss-total" }, hasInitialScore ? String(initialTotal) : "--"),
+      h("em", { class: "nihss-category" }, hasInitialScore ? nihssCategory(initialTotal) : "Not scored"),
       h("button", { type: "button", class: "nihss-toggle", onclick: toggleNihssDetails }, "OPEN NIHSS DETAILS")
     ]),
     h("div", { class: "nihss-details", hidden: true }, nihssGroups.map((group) => h("div", { class: "nihss-group" }, [
       h("h3", {}, group.title),
       ...group.items.map(([id, label, options]) => h("label", { class: "nihss-item" }, [
         h("span", {}, label),
-        h("select", { name: `nihss_${id}`, "data-nihss-item": id, onchange: updateNihssTotal }, options.map((option) => {
-          const value = option.split(" ")[0];
-          return h("option", { value }, option);
-        }))
+        h("select", { name: `nihss_${id}`, "data-nihss-item": id, onchange: updateNihssTotal }, [
+          h("option", { value: "", selected: breakdown[id] === "" || breakdown[id] == null }, "Select"),
+          ...options.map((option) => {
+            const value = option.split(" ")[0];
+            return h("option", { value, selected: String(breakdown[id]) === value }, option);
+          })
+        ])
       ]))
     ])))
   ]);
@@ -543,10 +660,12 @@ function toggleNihssDetails(event) {
 
 function updateNihssTotal(event) {
   const card = event.currentTarget.closest(".nihss-card");
-  const total = Array.from(card.querySelectorAll("[data-nihss-item]")).reduce((sum, input) => sum + Number(input.value || 0), 0);
-  card.querySelector("[name='nihss']").value = String(total);
-  card.querySelector(".nihss-total").textContent = String(total);
-  card.querySelector(".nihss-category").textContent = nihssCategory(total);
+  const inputs = Array.from(card.querySelectorAll("[data-nihss-item]"));
+  const hasScore = inputs.some((input) => input.value !== "");
+  const total = inputs.reduce((sum, input) => sum + Number(input.value || 0), 0);
+  card.querySelector("[name='nihss']").value = hasScore ? String(total) : "";
+  card.querySelector(".nihss-total").textContent = hasScore ? String(total) : "--";
+  card.querySelector(".nihss-category").textContent = hasScore ? nihssCategory(total) : "Not scored";
 }
 
 function nihssCategory(score) {
@@ -562,7 +681,7 @@ function select(name, options, value = "", onChange) {
 }
 
 function title(head, sub) {
-  return h("div", { class: "screen-title" }, [h("h1", {}, head), h("p", {}, sub)]);
+  return h("div", { class: "screen-title" }, [h("h1", {}, head), sub ? h("p", {}, sub) : null]);
 }
 
 function heading(text) {
@@ -656,6 +775,17 @@ function updateNested(caseId, group, key, value) {
   item[group][key] = value;
   saveCases();
   render();
+}
+
+function signoffMissingItems(item) {
+  const missing = [];
+  if (!item.observerName?.trim()) missing.push({ label: "Data entered by", type: "observer" });
+  if (!item.patientName || item.patientName === "Unnamed Patient") missing.push({ label: "Patient Name", type: "details" });
+  if (!item.suspicion) missing.push({ label: "Stroke Suspicion", type: "details" });
+  signoffStageRequirements.forEach(([id, label, section]) => {
+    if (!item.stages[id]?.time) missing.push({ label, type: "stage", stageId: id, section });
+  });
+  return missing;
 }
 
 function metricMinutes(item, def) {
