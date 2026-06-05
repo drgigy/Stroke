@@ -1,5 +1,14 @@
 const STORAGE_KEY = "rajagiri-strokecode-cases-v1";
+const DEVICE_ID_KEY = "rajagiri-strokecode-device-id-v1";
+const DEVICE_CODE_KEY = "rajagiri-strokecode-device-code-v1";
+const ACCESS_SETTINGS_KEY = "rajagiri-strokecode-access-v1";
 const FIRESTORE_COLLECTION = "strokeCases";
+const DEVICE_COLLECTION = "deviceApprovals";
+const defaultAccessSettings = {
+  centreName: "Rajagiri Hospital",
+  adminPin: "9999",
+  updatedAt: ""
+};
 
 const erStages = [
   ["arrival", "Arrival at ER"],
@@ -103,13 +112,30 @@ let state = {
   activeCaseId: null,
   openSections: { er: true, ct: true },
   manualTarget: null,
+  noteTarget: null,
+  stopTarget: null,
+  device: loadDeviceIdentity(),
+  deviceStatus: "checking",
+  deviceRecord: null,
+  devices: [],
+  adminUnlocked: false,
+  authError: "",
+  settingsMessage: "",
+  adminMessage: "",
+  installMessage: "",
+  deferredInstallPrompt: null,
   tick: Date.now()
 };
 
+let accessSettings = loadAccessSettings();
+
 let cloudSync = {
+  initialized: false,
   enabled: false,
   db: null,
   applyingRemote: false,
+  casesListening: false,
+  devicesListening: false,
   status: "Local only",
   lastSyncAt: "",
   error: "",
@@ -118,12 +144,24 @@ let cloudSync = {
 
 setInterval(() => {
   state.tick = Date.now();
-  if (["timeline", "home", "cases", "dashboard"].includes(state.view)) render();
+  if (["timeline", "home", "cases", "dashboard"].includes(state.view) && !state.manualTarget && !state.noteTarget && !state.stopTarget) render();
 }, 1000);
 
 if ("serviceWorker" in navigator) {
   navigator.serviceWorker.register("./service-worker.js").catch(() => {});
 }
+
+window.addEventListener("beforeinstallprompt", (event) => {
+  event.preventDefault();
+  state.deferredInstallPrompt = event;
+  render();
+});
+
+window.addEventListener("appinstalled", () => {
+  state.deferredInstallPrompt = null;
+  state.installMessage = "App installed successfully";
+  render();
+});
 
 initCloudSync();
 
@@ -135,6 +173,37 @@ function loadCases() {
   }
 }
 
+function loadAccessSettings() {
+  try {
+    return { ...defaultAccessSettings, ...(JSON.parse(localStorage.getItem(ACCESS_SETTINGS_KEY)) || {}) };
+  } catch {
+    return { ...defaultAccessSettings };
+  }
+}
+
+function loadDeviceIdentity() {
+  let id = localStorage.getItem(DEVICE_ID_KEY);
+  let code = localStorage.getItem(DEVICE_CODE_KEY);
+  if (!id) {
+    id = `device-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+    localStorage.setItem(DEVICE_ID_KEY, id);
+  }
+  if (!code) {
+    code = generateDeviceCode();
+    localStorage.setItem(DEVICE_CODE_KEY, code);
+  }
+  return { id, code };
+}
+
+function generateDeviceCode() {
+  const part = () => Math.random().toString(36).slice(2, 6).toUpperCase();
+  return `RSC-${part()}-${part()}`;
+}
+
+function saveAccessSettings() {
+  localStorage.setItem(ACCESS_SETTINGS_KEY, JSON.stringify(accessSettings));
+}
+
 function saveCases() {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(state.cases));
   if (cloudSync.enabled && !cloudSync.applyingRemote) {
@@ -143,23 +212,28 @@ function saveCases() {
 }
 
 function initCloudSync() {
+  if (cloudSync.initialized) return;
   const config = window.STROKECODE_FIREBASE_CONFIG;
   if (!config?.apiKey || !config?.projectId) {
     cloudSync.status = "Config missing";
     cloudSync.error = "firebase-config.js is missing project settings";
+    state.deviceStatus = "error";
     return;
   }
   if (!window.firebase?.initializeApp) {
     cloudSync.status = "SDK not loaded";
     cloudSync.error = "Firebase scripts did not load";
+    state.deviceStatus = "error";
     return;
   }
   try {
+    cloudSync.initialized = true;
     firebase.initializeApp(config);
     cloudSync.db = firebase.firestore();
     cloudSync.enabled = true;
     cloudSync.status = "Connecting...";
     cloudSync.error = "";
+    initDeviceApproval();
     setTimeout(() => {
       if (cloudSync.status === "Connecting...") {
         cloudSync.status = "Cloud sync slow";
@@ -167,7 +241,54 @@ function initCloudSync() {
         render();
       }
     }, 8000);
-    cloudSync.db.collection(FIRESTORE_COLLECTION).orderBy("createdAt", "desc").onSnapshot((snapshot) => {
+  } catch (error) {
+    cloudSync.enabled = false;
+    cloudSync.status = "Cloud sync error";
+    cloudSync.error = error.message || "Firebase initialization failed";
+    state.deviceStatus = "error";
+  }
+}
+
+function initDeviceApproval() {
+  const ref = cloudSync.db.collection(DEVICE_COLLECTION).doc(state.device.id);
+  const now = new Date().toISOString();
+  ref.get().then((doc) => {
+    if (!doc.exists) {
+      return ref.set({
+        deviceId: state.device.id,
+        deviceCode: state.device.code,
+        status: "pending",
+        deviceLabel: "",
+        firstSeenAt: now,
+        lastSeenAt: now,
+        approvedAt: "",
+        blockedAt: "",
+        revokedAt: ""
+      });
+    }
+    return ref.set({ lastSeenAt: now, deviceCode: doc.data().deviceCode || state.device.code }, { merge: true });
+  }).catch((error) => {
+    state.deviceStatus = "error";
+    cloudSync.error = `${error.code || "error"}: Device approval request failed`;
+    render();
+  });
+  ref.onSnapshot((doc) => {
+    if (!doc.exists) return;
+    state.deviceRecord = doc.data();
+    state.deviceStatus = state.deviceRecord.status || "pending";
+    if (state.deviceStatus === "approved") startCaseSync();
+    render();
+  }, (error) => {
+    state.deviceStatus = "error";
+    cloudSync.error = `${error.code || "error"}: Device approval listener failed`;
+    render();
+  });
+}
+
+function startCaseSync() {
+  if (cloudSync.casesListening) return;
+  cloudSync.casesListening = true;
+  cloudSync.db.collection(FIRESTORE_COLLECTION).orderBy("createdAt", "desc").onSnapshot((snapshot) => {
       const remoteCases = snapshot.docs.map((doc) => doc.data());
       cloudSync.applyingRemote = true;
       state.cases = remoteCases;
@@ -185,11 +306,6 @@ function initCloudSync() {
       cloudSync.error = `${error.code || "error"}: ${error.message || "Firestore listener failed"}`;
       render();
     });
-  } catch (error) {
-    cloudSync.enabled = false;
-    cloudSync.status = "Cloud sync error";
-    cloudSync.error = error.message || "Firebase initialization failed";
-  }
 }
 
 function syncCasesToCloud() {
@@ -226,7 +342,38 @@ function h(tag, attrs = {}, children = []) {
 function render() {
   const app = document.querySelector("#app");
   app.innerHTML = "";
-  app.appendChild(h("main", { class: "app-shell" }, [topbar(), screen(), bottomNav(), manualModal()]));
+  if (state.deviceStatus !== "approved") {
+    app.appendChild(h("main", { class: "app-shell lock-shell" }, deviceApprovalScreen()));
+    return;
+  }
+  app.appendChild(h("main", { class: "app-shell" }, [topbar(), screen(), bottomNav(), manualModal(), noteModal(), stopModal()]));
+}
+
+function deviceApprovalScreen() {
+  const status = state.deviceStatus;
+  const record = state.deviceRecord || {};
+  return h("section", { class: "lock-screen" }, [
+    h("div", { class: "brand lock-brand" }, [
+      h("div", { class: "brand-mark" }, "SC"),
+      h("div", {}, [
+        h("h1", {}, "Rajagiri Stroke Code"),
+        h("p", {}, accessSettings.centreName)
+      ])
+    ]),
+    h("div", { class: "lock-card" }, [
+      h("span", {}, status === "blocked" ? "DEVICE BLOCKED" : status === "error" ? "DEVICE CHECK ERROR" : "DEVICE APPROVAL REQUIRED"),
+      h("div", { class: "device-code" }, record.deviceCode || state.device.code),
+      h("p", { class: "settings-help centered" }, status === "blocked"
+        ? "This device has been blocked. Contact admin if this is a mistake."
+        : status === "error"
+          ? "Unable to check approval. Check internet, Firebase, and Firestore rules."
+          : "Share this code with admin. The app will open automatically after this device is approved."),
+      cloudSync.error ? h("div", { class: "settings-message" }, cloudSync.error) : null,
+      installButton(),
+      state.installMessage ? h("div", { class: "install-help" }, state.installMessage) : null,
+      h("button", { class: "secondary-btn", type: "button", onclick: () => { initCloudSync(); render(); } }, "CHECK AGAIN")
+    ])
+  ]);
 }
 
 function topbar() {
@@ -328,7 +475,14 @@ function createScreen() {
           },
           ivt: { eligible: "", consent: "", notGivenReason: "" },
           mt: { evtConsent: "", tici: "" },
+          stageNotes: {},
           delayReason: "",
+          caseComment: "",
+          caseStopped: false,
+          caseStoppedAt: "",
+          caseStoppedReason: "",
+          caseStoppedComment: "",
+          centreName: accessSettings.centreName,
           observerName: "",
           signedOffAt: "",
           signoffAttempted: false
@@ -405,16 +559,18 @@ function liveTracker(item, placement = "compact") {
   const completed = trackerSteps.filter(([id]) => item.stages[id]?.time).length;
   const percent = Math.round((completed / trackerSteps.length) * 100);
   const nextStep = trackerSteps.find(([id]) => !item.stages[id]?.time);
-  return h("div", { class: `tracker-card ${placement === "dashboard" ? "dashboard-tracker" : ""}` }, [
+  const elapsed = formatDuration(caseEndTime(item).getTime() - new Date(item.arrivalTime).getTime());
+  const status = caseStatus(item);
+  return h("div", { class: `tracker-card ${placement === "dashboard" ? "dashboard-tracker" : ""} ${status.className ? `tracker-${status.className}` : ""}` }, [
     h("div", { class: "tracker-head" }, [
       h("div", {}, [
         h("span", {}, "LIVE STROKE TRACKER"),
         h("strong", {}, `${item.id} | ${item.patientName}`),
-        h("small", {}, nextStep ? `Next: ${nextStep[1]}` : "Pathway complete")
+        h("small", {}, item.caseStopped ? `Stopped: ${item.caseStoppedReason || "Reason pending"}` : item.signedOffAt ? "Case signed off" : nextStep ? `Next: ${nextStep[1]}` : "Pathway complete")
       ]),
       h("div", { class: "tracker-score" }, [
-        h("em", {}, formatDuration(Date.now() - new Date(item.arrivalTime).getTime())),
-        h("span", {}, `${percent}% complete`)
+        h("em", {}, elapsed),
+        h("span", {}, item.caseStopped || item.signedOffAt ? "Final duration" : status.label)
       ])
     ]),
     h("div", { class: "tracker-progress" }, h("i", { style: `width:${percent}%` })),
@@ -431,6 +587,17 @@ function liveTracker(item, placement = "compact") {
         h("small", {}, done ? formatClock(item.stages[id].time) : group)
       ]);
     }))
+  ]);
+}
+
+function liveCasesPanel() {
+  const items = liveCases();
+  return h("div", { class: "live-cases-stack" }, [
+    h("div", { class: "section-heading compact-heading live-heading" }, [
+      h("h2", {}, "Live Stroke Cases"),
+      h("span", { class: "tag grey" }, `${items.length} active`)
+    ]),
+    items.length ? h("div", { class: "live-case-list" }, items.map((item) => liveTracker(item, "dashboard"))) : empty("No active live stroke cases.")
   ]);
 }
 
@@ -486,9 +653,18 @@ function editCaseScreen() {
 }
 
 function timerCard(item) {
+  const closed = Boolean(item.caseStopped || item.signedOffAt);
+  const elapsed = formatDuration(caseEndTime(item).getTime() - new Date(item.arrivalTime).getTime());
   return h("div", { class: "timer-card" }, [
-    h("span", {}, "TOTAL ELAPSED TIME"),
-    h("strong", {}, formatDuration(Date.now() - new Date(item.arrivalTime).getTime())),
+    h("div", { class: "timer-headline" }, [
+      h("div", {}, [
+        h("span", {}, closed ? "FINAL CASE DURATION" : "TOTAL ELAPSED TIME"),
+        h("strong", {}, elapsed)
+      ]),
+      closed
+        ? h("span", { class: `tag ${item.caseStopped ? "grey" : ""}` }, item.caseStopped ? "STOPPED" : "SIGNED OFF")
+        : h("button", { class: "stop-case-btn", onclick: () => openStopCase(item.id) }, "STOP CASE")
+    ]),
     h("div", { class: "timer-meta" }, [
       h("div", {}, `${item.id}`),
       h("div", {}, `${item.patientName} | ${item.age || "--"}/${shortGender(item.gender)}`)
@@ -517,6 +693,8 @@ function accordion(key, label, stages, item) {
 
 function stageRow(item, id, labelText) {
   const stage = item.stages[id];
+  const note = item.stageNotes?.[id] || "";
+  const closed = Boolean(item.caseStopped || item.signedOffAt);
   return h("div", { class: "stage" }, [
     h("i", { class: `dot ${stage?.mode || ""}` }),
     h("div", {}, [
@@ -525,9 +703,11 @@ function stageRow(item, id, labelText) {
         h("span", {}, stage ? `${formatClock(stage.time)}${stage.reason ? ` | ${stage.reason}` : ""}` : "Not yet recorded")
       ]),
       h("div", { class: "stage-actions" }, [
-        h("button", { class: `record-btn ${stage ? "done" : ""}`, onclick: () => recordStage(item.id, id, "auto") }, stage ? "RECORDED" : "RECORD NOW"),
-        h("button", { class: "manual-btn", onclick: () => openManual(item.id, id, labelText) }, "ENTER MANUAL TIME")
-      ])
+        h("button", { class: `record-btn ${stage ? "done" : ""}`, disabled: closed, onclick: () => recordStage(item.id, id, "auto") }, stage ? "RECORDED" : "RECORD NOW"),
+        h("button", { class: "manual-btn", disabled: closed, onclick: () => openManual(item.id, id, labelText) }, "ENTER MANUAL TIME"),
+        h("button", { class: `note-btn ${note ? "has-note" : ""}`, onclick: () => openNote(item.id, id, labelText) }, note ? "VIEW NOTE" : "NOTES")
+      ]),
+      note ? h("p", { class: "stage-note-preview" }, note) : null
     ])
   ]);
 }
@@ -546,9 +726,9 @@ function ivtScreen() {
     title("IV Thrombolysis", `${item.id} | ${item.patientName}`),
     h("div", { class: "form-card" }, [
       optionField("IVT Eligible", "eligible", item.ivt.eligible, ["Yes", "No"], (value) => updateNested(item.id, "ivt", "eligible", value)),
-      optionField("IVT Consent Taken", "consent", item.ivt.consent, ["Yes", "No"], (value) => updateNested(item.id, "ivt", "consent", value)),
+      stageRow(item, "ivtConsent", "IVT Consent Taken"),
       stageRow(item, "ivtStarted", "IVT Started / Bolus Given"),
-      item.ivt.eligible === "No" || item.ivt.consent === "No" ? field("If IVT not given", select("notGivenReason", ["Outside window", "Hemorrhage", "Anticoagulant", "Family refusal", "Clinical decision", "Other"], item.ivt.notGivenReason, (value) => updateNested(item.id, "ivt", "notGivenReason", value))) : null,
+      item.ivt.eligible === "No" ? field("If IVT not given", select("notGivenReason", ["Outside window", "Hemorrhage", "Anticoagulant", "Family refusal", "Clinical decision", "Other"], item.ivt.notGivenReason, (value) => updateNested(item.id, "ivt", "notGivenReason", value))) : null,
       h("button", { class: "secondary-btn", onclick: () => go("timeline", item.id) }, "BACK TO TIMELINE")
     ])
   ]);
@@ -560,7 +740,7 @@ function mtScreen() {
   return h("section", {}, [
     title("Mechanical Thrombectomy", `${item.id} | ${item.patientName}`),
     h("div", { class: "form-card" }, [
-      optionField("EVT Consent Taken", "evtConsent", item.mt.evtConsent, ["Yes", "No"], (value) => updateNested(item.id, "mt", "evtConsent", value)),
+      stageRow(item, "evtConsent", "EVT Consent Taken"),
       ...mtStages.map(([id, labelText]) => stageRow(item, id, labelText)),
       field("Final TICI Score", select("tici", ["", "0", "1", "2A", "2B", "2C", "3"], item.mt.tici, (value) => updateNested(item.id, "mt", "tici", value))),
       h("button", { class: "secondary-btn", onclick: () => go("timeline", item.id) }, "BACK TO TIMELINE")
@@ -586,6 +766,7 @@ function summaryScreen() {
       render();
     })),
     h("div", { class: "metrics-list" }, metricDefs.map((def) => metricLine(item, def))),
+    notesPanel(item),
     signoffPanel(item, missing),
     h("div", { class: "grid", style: "margin-top:14px" }, [
       h("button", { class: "primary-cta", onclick: () => go("timeline", item.id) }, "VIEW FULL TIMELINE"),
@@ -601,15 +782,17 @@ function signoffPanel(item, missing) {
       event.preventDefault();
       const form = new FormData(event.currentTarget);
       item.observerName = form.get("observerName").trim();
+      item.caseComment = form.get("caseComment").trim();
       item.signoffAttempted = true;
       const currentMissing = signoffMissingItems(item);
-      item.signedOffAt = currentMissing.length ? "" : new Date().toISOString();
+      if (!currentMissing.length && !item.signedOffAt) item.signedOffAt = new Date().toISOString();
       saveCases();
       render();
     }
   }, [
     h("div", { class: "section-heading compact-heading" }, [h("h2", {}, "Final Sign-off")]),
     field("Data entered by", h("input", { name: "observerName", placeholder: "Name of observer / intern / coordinator", value: item.observerName || "" })),
+    field("Overall case comments", h("textarea", { name: "caseComment", placeholder: "Add final comments about delays, clinical decision, consent, transfer, or pathway issues" }, item.caseComment || "")),
     missing.length
       ? h("div", { class: `missing-panel ${item.signoffAttempted ? "show" : ""}` }, [
           h("strong", {}, "Mandatory items pending"),
@@ -642,7 +825,6 @@ function handlePendingClick(caseId, entry) {
 
 function dashboardScreen() {
   const today = todaysCases();
-  const active = currentCase();
   const statusCounts = today.reduce((acc, item) => {
     const status = caseStatus(item).label;
     acc[status] = (acc[status] || 0) + 1;
@@ -650,7 +832,7 @@ function dashboardScreen() {
   }, {});
   return h("section", {}, [
     title("Quality Dashboard", "Responsive command-center view for 10-day observation."),
-    active ? liveTracker(active, "dashboard") : empty("No active code stroke case."),
+    liveCasesPanel(),
     h("div", { class: "grid dashboard-grid" }, [
       metricCard("Total Cases Today", today.length || "0"),
       metricCard("On Track", statusCounts["On Track"] || "0"),
@@ -661,6 +843,8 @@ function dashboardScreen() {
     h("div", { class: "grid dashboard-grid" }, metricDefs.slice(0, 6).map((def) => metricCard(def[1], medianMetric(today, def[0])))),
     heading("Recent Cases Table"),
     recentTable(),
+    heading("Case Notes / Stop Reasons"),
+    dashboardNotes(),
     h("div", { class: "desktop-two", style: "margin-top:14px" }, [delayChart(), trendChart()])
   ]);
 }
@@ -680,12 +864,175 @@ function moreScreen() {
       metricCard("Firestore", cloudSync.status),
       metricCard("Firebase project", cloudSync.projectId),
       metricCard("Last cloud sync", cloudSync.lastSyncAt ? formatClock(cloudSync.lastSyncAt) : "--"),
+      metricCard("Centre", accessSettings.centreName),
+      metricCard("This device", state.deviceRecord?.deviceCode || state.device.code),
       cloudSync.error ? metricCard("Sync error", cloudSync.error) : null,
+      installButton(),
+      state.installMessage ? h("div", { class: "install-help" }, state.installMessage) : null,
       h("button", { class: "secondary-btn", onclick: testCloudSync }, "TEST FIREBASE CONNECTION"),
       h("button", { class: "secondary-btn", onclick: exportCases }, "EXPORT CASES JSON"),
       h("button", { class: "danger-btn", style: "background:#fff0f0;color:#e5484d", onclick: clearCases }, "CLEAR LOCAL CASES")
+    ]),
+    state.adminUnlocked ? accessSettingsPanel() : adminUnlockPanel()
+  ]);
+}
+
+function adminUnlockPanel() {
+  return h("form", {
+    class: "signoff-card access-card",
+    onsubmit: (event) => {
+      event.preventDefault();
+      const form = new FormData(event.currentTarget);
+      if (form.get("adminPin").trim() === accessSettings.adminPin) {
+        state.adminUnlocked = true;
+        state.adminMessage = "";
+        state.settingsMessage = "";
+        listenDeviceApprovals();
+        render();
+        return;
+      }
+      state.adminMessage = "Admin PIN is incorrect";
+      render();
+    }
+  }, [
+    h("div", { class: "section-heading compact-heading" }, [h("h2", {}, "Admin Settings")]),
+    h("p", { class: "settings-help" }, "Enter admin PIN to view or change access settings."),
+    field("Admin PIN", h("input", { name: "adminPin", type: "password", inputmode: "numeric", maxlength: "4", pattern: "[0-9]*", placeholder: "Enter admin PIN" })),
+    state.adminMessage ? h("div", { class: "settings-message" }, state.adminMessage) : null,
+    h("button", { class: "secondary-btn", type: "submit" }, "OPEN ADMIN SETTINGS")
+  ]);
+}
+
+function accessSettingsPanel() {
+  return h("form", {
+    class: "signoff-card access-card",
+    onsubmit: (event) => {
+      event.preventDefault();
+      const form = new FormData(event.currentTarget);
+      const centreName = form.get("centreName").trim();
+      const newAdminPin = form.get("newAdminPin").trim();
+      if (newAdminPin && !isFourDigitPin(newAdminPin)) {
+        state.settingsMessage = "Admin PIN must be exactly 4 digits";
+        render();
+        return;
+      }
+      accessSettings = {
+        ...accessSettings,
+        centreName: centreName || accessSettings.centreName,
+        adminPin: newAdminPin || accessSettings.adminPin,
+        updatedAt: new Date().toISOString()
+      };
+      saveAccessSettings();
+      state.settingsMessage = "Access settings updated";
+      render();
+    }
+  }, [
+    h("div", { class: "section-heading compact-heading" }, [h("h2", {}, "Access PIN Settings")]),
+    h("p", { class: "settings-help" }, "Approved devices open directly. Admin PIN is only for admin settings and device approvals."),
+    field("Centre name", h("input", { name: "centreName", value: accessSettings.centreName, placeholder: "Centre / hospital name" })),
+    field("New admin PIN (optional)", h("input", { name: "newAdminPin", type: "password", inputmode: "numeric", maxlength: "4", pattern: "[0-9]*", placeholder: "Leave blank to keep current" })),
+    state.settingsMessage ? h("div", { class: `settings-message ${state.settingsMessage.includes("updated") ? "ok" : ""}` }, state.settingsMessage) : null,
+    h("button", { class: "secondary-btn", type: "button", onclick: () => { state.adminUnlocked = false; state.settingsMessage = ""; render(); } }, "CLOSE ADMIN SETTINGS"),
+    h("button", { class: "primary-cta", type: "submit" }, "SAVE ACCESS SETTINGS"),
+    adminDevicesPanel()
+  ]);
+}
+
+function isFourDigitPin(value) {
+  return /^\d{4}$/.test(value);
+}
+
+function installButton() {
+  if (isStandaloneApp()) return metricCard("Installed app", "Ready");
+  return h("button", { class: "install-btn", type: "button", onclick: installApp }, "INSTALL APP");
+}
+
+function isStandaloneApp() {
+  return window.matchMedia("(display-mode: standalone)").matches || window.navigator.standalone === true;
+}
+
+function installApp() {
+  if (state.deferredInstallPrompt) {
+    const promptEvent = state.deferredInstallPrompt;
+    state.deferredInstallPrompt = null;
+    promptEvent.prompt();
+    promptEvent.userChoice.then((choice) => {
+      state.installMessage = choice.outcome === "accepted" ? "Installing Rajagiri Stroke Code..." : "";
+      render();
+    });
+    return;
+  }
+  state.installMessage = "On iPhone: tap Share, then Add to Home Screen. On Android/Chrome: use browser menu, then Install app.";
+  render();
+}
+
+function listenDeviceApprovals() {
+  if (!cloudSync.enabled || !cloudSync.db || cloudSync.devicesListening) return;
+  cloudSync.devicesListening = true;
+  cloudSync.db.collection(DEVICE_COLLECTION).orderBy("lastSeenAt", "desc").onSnapshot((snapshot) => {
+    state.devices = snapshot.docs.map((doc) => doc.data());
+    render();
+  }, (error) => {
+    state.adminMessage = `${error.code || "error"}: Device list failed`;
+    render();
+  });
+}
+
+function adminDevicesPanel() {
+  listenDeviceApprovals();
+  const groups = [
+    ["pending", "Pending Devices"],
+    ["approved", "Approved Devices"],
+    ["blocked", "Blocked Devices"]
+  ];
+  return h("div", { class: "admin-devices" }, [
+    h("div", { class: "section-heading compact-heading" }, [h("h2", {}, "Admin Devices")]),
+    h("p", { class: "settings-help" }, "Approve only phones or computers that should access Rajagiri Stroke Code."),
+    ...groups.map(([status, label]) => {
+      const devices = state.devices.filter((device) => (device.status || "pending") === status);
+      return h("div", { class: "device-group" }, [
+        h("h3", {}, `${label} (${devices.length})`),
+        devices.length ? h("div", { class: "device-list" }, devices.map(deviceCard)) : h("p", { class: "muted-line" }, "None")
+      ]);
+    })
+  ]);
+}
+
+function deviceCard(device) {
+  const isThisDevice = device.deviceId === state.device.id;
+  const status = device.status || "pending";
+  return h("div", { class: `device-card device-${status}` }, [
+    h("div", {}, [
+      h("strong", {}, `${device.deviceCode || device.deviceId}${isThisDevice ? " (this device)" : ""}`),
+      h("span", {}, `Status: ${status}`),
+      h("span", {}, `First seen: ${device.firstSeenAt ? formatClock(device.firstSeenAt) : "--"}`),
+      h("span", {}, `Last seen: ${device.lastSeenAt ? formatClock(device.lastSeenAt) : "--"}`)
+    ]),
+    h("div", { class: "device-actions" }, [
+      status !== "approved" ? h("button", { type: "button", class: "record-btn", onclick: () => updateDeviceStatus(device.deviceId, "approved") }, "APPROVE") : null,
+      status !== "blocked" ? h("button", { type: "button", class: "manual-btn", onclick: () => updateDeviceStatus(device.deviceId, "blocked") }, status === "approved" ? "REVOKE" : "BLOCK") : null,
+      status === "blocked" ? h("button", { type: "button", class: "manual-btn", onclick: () => updateDeviceStatus(device.deviceId, "pending") }, "UNBLOCK") : null
     ])
   ]);
+}
+
+function updateDeviceStatus(deviceId, status) {
+  if (!cloudSync.enabled || !cloudSync.db) return;
+  const now = new Date().toISOString();
+  const updates = { status, lastAdminActionAt: now };
+  if (status === "approved") {
+    updates.approvedAt = now;
+    updates.blockedAt = "";
+    updates.revokedAt = "";
+  }
+  if (status === "blocked") {
+    updates.blockedAt = now;
+    updates.revokedAt = now;
+  }
+  cloudSync.db.collection(DEVICE_COLLECTION).doc(deviceId).set(updates, { merge: true }).catch((error) => {
+    state.adminMessage = `${error.code || "error"}: Device update failed`;
+    render();
+  });
 }
 
 function testCloudSync() {
@@ -727,6 +1074,7 @@ function withTimeout(promise, ms) {
 
 function recordStage(caseId, stageId, mode, manualTime, reason = "") {
   const item = state.cases.find((entry) => entry.id === caseId);
+  if (!item || item.caseStopped || item.signedOffAt) return;
   item.stages[stageId] = { time: manualTime || new Date().toISOString(), mode, reason };
   saveCases();
   render();
@@ -756,6 +1104,80 @@ function manualModal() {
       h("div", { class: "modal-actions" }, [
         h("button", { type: "button", class: "secondary-btn", onclick: () => { state.manualTarget = null; render(); } }, "CANCEL"),
         h("button", { class: "record-btn", type: "submit" }, "SAVE TIME")
+      ])
+    ])
+  ]);
+}
+
+function openNote(caseId, stageId, labelText) {
+  state.noteTarget = { caseId, stageId, labelText };
+  render();
+}
+
+function noteModal() {
+  if (!state.noteTarget) return null;
+  const target = state.noteTarget;
+  const item = state.cases.find((entry) => entry.id === target.caseId);
+  const currentNote = item?.stageNotes?.[target.stageId] || "";
+  return h("div", { class: "modal-backdrop" }, [
+    h("form", {
+      class: "modal",
+      onsubmit: (event) => {
+        event.preventDefault();
+        const form = new FormData(event.currentTarget);
+        const note = form.get("stageNote").trim();
+        if (item) {
+          item.stageNotes = item.stageNotes || {};
+          if (note) item.stageNotes[target.stageId] = note;
+          else delete item.stageNotes[target.stageId];
+          saveCases();
+        }
+        state.noteTarget = null;
+        render();
+      }
+    }, [
+      h("h3", {}, `${target.labelText} Notes`),
+      field("Comments", h("textarea", { name: "stageNote", placeholder: "Enter reason, delay details, or operational comment" }, currentNote)),
+      h("div", { class: "modal-actions" }, [
+        h("button", { type: "button", class: "secondary-btn", onclick: () => { state.noteTarget = null; render(); } }, "CANCEL"),
+        h("button", { class: "record-btn", type: "submit" }, "SAVE NOTE")
+      ])
+    ])
+  ]);
+}
+
+function openStopCase(caseId) {
+  state.stopTarget = { caseId };
+  render();
+}
+
+function stopModal() {
+  if (!state.stopTarget) return null;
+  const item = state.cases.find((entry) => entry.id === state.stopTarget.caseId);
+  return h("div", { class: "modal-backdrop" }, [
+    h("form", {
+      class: "modal",
+      onsubmit: (event) => {
+        event.preventDefault();
+        const form = new FormData(event.currentTarget);
+        if (item) {
+          item.caseStopped = true;
+          item.caseStoppedAt = item.caseStoppedAt || new Date().toISOString();
+          item.caseStoppedReason = form.get("caseStoppedReason");
+          item.caseStoppedComment = form.get("caseStoppedComment").trim();
+          saveCases();
+        }
+        state.stopTarget = null;
+        render();
+      }
+    }, [
+      h("h3", {}, "Stop Case Entry"),
+      h("p", { class: "modal-help" }, "Use this only when the pathway is abandoned or no further stroke treatment is planned."),
+      field("Reason", select("caseStoppedReason", ["Stroke mimic", "Hemorrhage", "No further treatment planned", "Patient unstable", "Family refused", "Shifted elsewhere", "Other"], item?.caseStoppedReason || "")),
+      field("Comments", h("textarea", { name: "caseStoppedComment", placeholder: "Enter why the pathway was stopped" }, item?.caseStoppedComment || "")),
+      h("div", { class: "modal-actions" }, [
+        h("button", { type: "button", class: "secondary-btn", onclick: () => { state.stopTarget = null; render(); } }, "CANCEL"),
+        h("button", { class: "danger-btn stop-confirm-btn", type: "submit" }, "STOP CASE")
       ])
     ])
   ]);
@@ -873,10 +1295,11 @@ function empty(text) {
 
 function caseRow(item) {
   const status = caseStatus(item);
+  const elapsed = formatDuration(caseEndTime(item).getTime() - new Date(item.arrivalTime).getTime());
   return h("button", { class: "case-row", onclick: () => go("timeline", item.id) }, [
     h("div", { class: "case-main" }, [
       h("strong", {}, `${item.id} - ${item.patientName}`),
-      h("span", {}, `${formatDuration(Date.now() - new Date(item.arrivalTime).getTime())} | ${item.suspicion}`)
+      h("span", {}, `${elapsed} | ${item.suspicion}`)
     ]),
     h("span", { class: `tag ${status.className}` }, status.label)
   ]);
@@ -899,6 +1322,7 @@ function recentTable() {
   if (!state.cases.length) return empty("No cases recorded yet.");
   const rows = state.cases.slice(0, 8).map((item) => {
     const status = caseStatus(item);
+    const noteCount = Object.values(item.stageNotes || {}).filter(Boolean).length + (item.caseComment ? 1 : 0) + (item.caseStoppedComment ? 1 : 0);
     return h("tr", {}, [
       h("td", {}, item.id),
       h("td", {}, item.patientName),
@@ -907,13 +1331,53 @@ function recentTable() {
       h("td", {}, metricText(item, "doorCt")),
       h("td", {}, metricText(item, "doorGroin")),
       h("td", {}, metricText(item, "doorRecan")),
+      h("td", {}, noteCount ? h("span", { class: "note-count" }, `${noteCount} note${noteCount === 1 ? "" : "s"}`) : "--"),
       h("td", {}, h("span", { class: `tag ${status.className}` }, status.label))
     ]);
   });
   return h("div", { class: "table-wrap" }, h("table", {}, [
-    h("thead", {}, h("tr", {}, ["Case ID", "Patient Name", "Age/Gender", "Arrival Time", "Door -> CT", "Door -> Groin", "Door -> Recanalisation", "Status"].map((text) => h("th", {}, text)))),
+    h("thead", {}, h("tr", {}, ["Case ID", "Patient Name", "Age/Gender", "Arrival Time", "Door -> CT", "Door -> Groin", "Door -> Recanalisation", "Notes", "Status"].map((text) => h("th", {}, text)))),
     h("tbody", {}, rows)
   ]));
+}
+
+function notesPanel(item) {
+  const notes = Object.entries(item.stageNotes || {}).filter(([, note]) => note);
+  if (!notes.length && !item.caseStoppedComment && !item.caseComment) return null;
+  return h("div", { class: "notes-panel" }, [
+    h("strong", {}, "Case Notes"),
+    ...notes.map(([stageId, note]) => h("div", { class: "note-line" }, [
+      h("span", {}, stageLabel(stageId)),
+      h("p", {}, note)
+    ])),
+    item.caseStoppedComment ? h("div", { class: "note-line stop-note" }, [
+      h("span", {}, `Stopped: ${item.caseStoppedReason || "Reason"}`),
+      h("p", {}, item.caseStoppedComment)
+    ]) : null,
+    item.caseComment ? h("div", { class: "note-line" }, [
+      h("span", {}, "Final Case Comment"),
+      h("p", {}, item.caseComment)
+    ]) : null
+  ]);
+}
+
+function dashboardNotes() {
+  const rows = state.cases
+    .filter((item) => Object.values(item.stageNotes || {}).some(Boolean) || item.caseComment || item.caseStopped)
+    .slice(0, 8);
+  if (!rows.length) return empty("No notes or stopped cases yet.");
+  return h("div", { class: "dashboard-notes" }, rows.map((item) => {
+    const stageNotes = Object.entries(item.stageNotes || {}).filter(([, note]) => note);
+    const preview = item.caseStopped
+      ? `${item.caseStoppedReason || "Stopped"}${item.caseStoppedComment ? ` - ${item.caseStoppedComment}` : ""}`
+      : item.caseComment || stageNotes[0]?.[1] || "";
+    return h("button", { class: "dashboard-note-row", onclick: () => go("summary", item.id) }, [
+      h("span", {}, item.id),
+      h("strong", {}, item.patientName),
+      h("p", {}, preview || "Notes added"),
+      h("em", {}, item.caseStopped ? "Stopped" : `${stageNotes.length + (item.caseComment ? 1 : 0)} note${stageNotes.length + (item.caseComment ? 1 : 0) === 1 ? "" : "s"}`)
+    ]);
+  }));
 }
 
 function delayChart() {
@@ -997,6 +1461,8 @@ function metricStatus(minutes, target, critical) {
 }
 
 function caseStatus(item) {
+  if (item.caseStopped) return { label: "Stopped", className: "grey" };
+  if (item.signedOffAt) return { label: "Signed Off", className: "" };
   const values = metricDefs.slice(0, 6).map((def) => {
     const minutes = metricMinutes(item, def);
     return minutes == null ? null : metricStatus(minutes, def[4], def[5]).className;
@@ -1006,9 +1472,31 @@ function caseStatus(item) {
   return { label: "On Track", className: "" };
 }
 
+function caseEndTime(item) {
+  if (item.caseStoppedAt) return new Date(item.caseStoppedAt);
+  if (item.signedOffAt) return new Date(item.signedOffAt);
+  return new Date();
+}
+
+function stageLabel(stageId) {
+  const allStages = [...erStages, ...ctStages, ["ivtConsent", "IVT Consent Taken"], ["ivtStarted", "IVT Started / Bolus Given"], ["evtConsent", "EVT Consent Taken"], ...mtStages];
+  return allStages.find(([id]) => id === stageId)?.[1] || stageId;
+}
+
 function todaysCases() {
   const today = new Date().toDateString();
   return state.cases.filter((item) => new Date(item.arrivalTime).toDateString() === today);
+}
+
+function liveCases() {
+  const priority = { Critical: 0, Delayed: 1, "On Track": 2 };
+  return state.cases
+    .filter((item) => !item.caseStopped && !item.signedOffAt)
+    .sort((a, b) => {
+      const statusDiff = (priority[caseStatus(a).label] ?? 3) - (priority[caseStatus(b).label] ?? 3);
+      if (statusDiff) return statusDiff;
+      return new Date(a.arrivalTime) - new Date(b.arrivalTime);
+    });
 }
 
 function nextCaseId() {
@@ -1021,13 +1509,13 @@ function nextCaseId() {
 
 function ivtStatus(item) {
   if (item.stages.ivtStarted) return "Completed";
-  if (item.ivt.eligible || item.ivt.consent) return "In Progress";
+  if (item.ivt.eligible || item.stages.ivtConsent || item.ivt.consent) return "In Progress";
   return "Not Recorded";
 }
 
 function mtStatus(item) {
   if (item.stages.recanalisation) return "Completed";
-  if (mtStages.some(([id]) => item.stages[id])) return "In progress";
+  if (item.stages.evtConsent || item.mt.evtConsent || mtStages.some(([id]) => item.stages[id])) return "In progress";
   return "Not started";
 }
 

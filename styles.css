@@ -29,7 +29,8 @@ body {
 
 button,
 input,
-select {
+select,
+textarea {
   font: inherit;
 }
 
@@ -51,6 +52,120 @@ button {
   justify-content: space-between;
   gap: 12px;
   padding: 4px 2px 18px;
+}
+
+.lock-shell {
+  display: grid;
+  min-height: 100vh;
+  align-content: center;
+  padding-bottom: 24px;
+}
+
+.lock-screen {
+  display: grid;
+  width: min(100%, 440px);
+  gap: 18px;
+  margin: 0 auto;
+}
+
+.lock-brand {
+  justify-content: center;
+}
+
+.lock-card {
+  display: grid;
+  gap: 14px;
+  padding: 18px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: var(--shadow);
+}
+
+.lock-card > span {
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 950;
+  text-align: center;
+}
+
+.lock-card .primary-cta {
+  width: 100%;
+  margin: 0;
+}
+
+.install-btn {
+  display: flex;
+  min-height: 52px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 12px;
+  background: var(--purple);
+  color: #fff;
+  font-weight: 950;
+  letter-spacing: 0.02em;
+}
+
+.install-help {
+  padding: 10px 12px;
+  border: 1px solid #ffd89a;
+  border-radius: 8px;
+  background: #fff8ea;
+  color: #8a5a00;
+  font-size: 0.86rem;
+  font-weight: 850;
+  line-height: 1.35;
+}
+
+.device-code,
+.pin-display {
+  display: grid;
+  min-height: 64px;
+  place-items: center;
+  border: 1px solid #f5c6cb;
+  border-radius: 12px;
+  background: #fff8f8;
+  color: var(--purple);
+  font-size: 2rem;
+  font-weight: 950;
+  letter-spacing: 0.18em;
+}
+
+.device-code {
+  font-size: 1.65rem;
+  letter-spacing: 0.06em;
+}
+
+.centered {
+  text-align: center;
+}
+
+.pin-keypad {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.pin-key {
+  min-height: 58px;
+  border-radius: 14px;
+  background: var(--soft);
+  color: var(--ink);
+  font-size: 1.3rem;
+  font-weight: 950;
+}
+
+.pin-key.utility {
+  color: var(--purple);
+  font-size: 0.86rem;
+}
+
+.auth-error {
+  margin: -4px 0 0;
+  color: var(--red);
+  font-size: 0.86rem;
+  font-weight: 900;
+  text-align: center;
 }
 
 .brand {
@@ -291,7 +406,8 @@ button {
 }
 
 .field input,
-.field select {
+.field select,
+.field textarea {
   width: 100%;
   min-height: 52px;
   padding: 0 14px;
@@ -300,6 +416,13 @@ button {
   background: #fff;
   color: var(--ink);
   outline: 0;
+}
+
+.field textarea {
+  min-height: 110px;
+  padding: 12px 14px;
+  resize: vertical;
+  line-height: 1.35;
 }
 
 .segmented {
@@ -361,6 +484,24 @@ button {
   line-height: 1.05;
 }
 
+.timer-headline {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.stop-case-btn {
+  min-width: 104px;
+  min-height: 44px;
+  padding: 0 12px;
+  border-radius: 10px;
+  background: #fff0f0;
+  color: var(--red);
+  font-size: 0.78rem;
+  font-weight: 950;
+}
+
 .timer-meta {
   display: flex;
   justify-content: space-between;
@@ -416,6 +557,38 @@ button {
   background:
     linear-gradient(135deg, #fff 0%, #fff7f7 60%, #fff 100%);
   box-shadow: 0 18px 46px rgba(181, 18, 27, 0.12);
+}
+
+.live-cases-stack {
+  margin: 14px 0 18px;
+}
+
+.live-heading {
+  margin-top: 0;
+}
+
+.live-case-list {
+  display: grid;
+  gap: 14px;
+}
+
+.live-case-list .dashboard-tracker {
+  margin: 0;
+}
+
+.dashboard-tracker.tracker-red {
+  border-color: #e5484d;
+  background: linear-gradient(135deg, #fff 0%, #fff0f0 62%, #fff 100%);
+}
+
+.dashboard-tracker.tracker-orange {
+  border-color: #f5b75c;
+  background: linear-gradient(135deg, #fff 0%, #fff8ea 62%, #fff 100%);
+}
+
+.dashboard-tracker.tracker-grey {
+  border-color: #cfd4df;
+  background: linear-gradient(135deg, #fff 0%, #f6f7fb 62%, #fff 100%);
 }
 
 .tracker-head {
@@ -697,13 +870,14 @@ button {
 
 .stage-actions {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: 1fr 1fr 0.72fr;
   gap: 8px;
   margin-top: 10px;
 }
 
 .record-btn,
 .manual-btn,
+.note-btn,
 .danger-btn {
   min-height: 48px;
   border-radius: 10px;
@@ -725,6 +899,35 @@ button {
   background: #fff;
   color: var(--purple);
   border: 1px solid #f5c6cb;
+}
+
+.note-btn {
+  background: #fff8ea;
+  color: #9a5f00;
+  border: 1px solid #ffd89a;
+}
+
+.note-btn.has-note {
+  background: #fff1f2;
+  color: var(--purple);
+  border-color: #f5c6cb;
+}
+
+.record-btn:disabled,
+.manual-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.stage-note-preview {
+  margin: 10px 0 0;
+  padding: 10px;
+  border-left: 3px solid var(--orange);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--ink);
+  font-size: 0.84rem;
+  line-height: 1.35;
 }
 
 .pathway-card {
@@ -760,6 +963,13 @@ button {
   margin: 0 0 12px;
 }
 
+.modal-help {
+  margin: -4px 0 12px;
+  color: var(--muted);
+  font-size: 0.88rem;
+  line-height: 1.35;
+}
+
 .modal-actions {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -788,6 +998,103 @@ button {
   border: 1px solid var(--line);
   border-radius: 8px;
   background: #fff;
+}
+
+.access-card {
+  margin-bottom: 14px;
+}
+
+.settings-help {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.86rem;
+  line-height: 1.4;
+}
+
+.settings-message {
+  padding: 10px 12px;
+  border: 1px solid #f5c6cb;
+  border-radius: 8px;
+  background: #fff1f2;
+  color: var(--red);
+  font-size: 0.88rem;
+  font-weight: 900;
+}
+
+.settings-message.ok {
+  border-color: #bfead4;
+  background: #f0fbf5;
+  color: var(--green);
+}
+
+.admin-devices {
+  display: grid;
+  gap: 12px;
+  margin-top: 4px;
+}
+
+.device-group {
+  display: grid;
+  gap: 8px;
+  padding-top: 6px;
+}
+
+.device-group h3 {
+  margin: 0;
+  font-size: 0.92rem;
+}
+
+.device-list {
+  display: grid;
+  gap: 8px;
+}
+
+.device-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--soft);
+}
+
+.device-card strong,
+.device-card span {
+  display: block;
+}
+
+.device-card strong {
+  font-size: 0.94rem;
+}
+
+.device-card span,
+.muted-line {
+  color: var(--muted);
+  font-size: 0.8rem;
+  font-weight: 850;
+}
+
+.device-approved {
+  border-color: #bfead4;
+  background: #f0fbf5;
+}
+
+.device-blocked {
+  border-color: #f5c6cb;
+  background: #fff1f2;
+}
+
+.device-actions {
+  display: grid;
+  min-width: 118px;
+  gap: 8px;
+}
+
+.device-actions button {
+  min-height: 38px;
+  font-size: 0.78rem;
 }
 
 .signoff-card .primary-cta {
@@ -852,6 +1159,84 @@ button {
   font-weight: 900;
 }
 
+.notes-panel,
+.dashboard-notes {
+  display: grid;
+  gap: 10px;
+  margin-top: 14px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.notes-panel > strong {
+  font-size: 0.96rem;
+}
+
+.note-line {
+  padding: 10px;
+  border-radius: 8px;
+  background: var(--soft);
+}
+
+.note-line span {
+  display: block;
+  color: var(--muted);
+  font-size: 0.76rem;
+  font-weight: 950;
+  text-transform: uppercase;
+}
+
+.note-line p,
+.dashboard-note-row p {
+  margin: 5px 0 0;
+  color: var(--ink);
+  font-size: 0.88rem;
+  line-height: 1.35;
+}
+
+.stop-note {
+  border: 1px solid #f5c6cb;
+  background: #fff1f2;
+}
+
+.dashboard-note-row {
+  display: grid;
+  grid-template-columns: 110px 160px minmax(220px, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  width: 100%;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--soft);
+  text-align: left;
+}
+
+.dashboard-note-row span,
+.dashboard-note-row em,
+.note-count {
+  color: var(--muted);
+  font-size: 0.8rem;
+  font-style: normal;
+  font-weight: 900;
+}
+
+.dashboard-note-row strong {
+  font-size: 0.9rem;
+}
+
+.note-count {
+  display: inline-flex;
+  min-height: 26px;
+  align-items: center;
+  padding: 0 8px;
+  border-radius: 999px;
+  background: #fff8ea;
+  color: #9a5f00;
+}
+
 .empty {
   padding: 22px;
   border: 1px dashed #cfd4df;
@@ -908,7 +1293,7 @@ button {
 
 table {
   width: 100%;
-  min-width: 760px;
+  min-width: 860px;
   border-collapse: collapse;
 }
 
@@ -1035,6 +1420,24 @@ th {
 
   .dashboard-tracker .tracker-step span {
     font-size: 0.86rem;
+  }
+}
+
+@media (max-width: 520px) {
+  .timer-headline {
+    align-items: stretch;
+  }
+
+  .timer-headline strong {
+    font-size: 2.1rem;
+  }
+
+  .stage-actions {
+    grid-template-columns: 1fr;
+  }
+
+  .dashboard-note-row {
+    grid-template-columns: 1fr;
   }
 }
 
