@@ -1,6 +1,8 @@
 const STORAGE_KEY = "rajagiri-strokecode-cases-v1";
 const DEVICE_ID_KEY = "rajagiri-strokecode-device-id-v1";
 const DEVICE_CODE_KEY = "rajagiri-strokecode-device-code-v1";
+const DEVICE_COOKIE_ID = "rsc_device_id";
+const DEVICE_COOKIE_CODE = "rsc_device_code";
 const ACCESS_SETTINGS_KEY = "rajagiri-strokecode-access-v1";
 const FIRESTORE_COLLECTION = "strokeCases";
 const DEVICE_COLLECTION = "deviceApprovals";
@@ -182,17 +184,46 @@ function loadAccessSettings() {
 }
 
 function loadDeviceIdentity() {
-  let id = localStorage.getItem(DEVICE_ID_KEY);
-  let code = localStorage.getItem(DEVICE_CODE_KEY);
+  let id = safeStorageGet(DEVICE_ID_KEY) || readCookie(DEVICE_COOKIE_ID);
+  let code = safeStorageGet(DEVICE_CODE_KEY) || readCookie(DEVICE_COOKIE_CODE);
   if (!id) {
     id = `device-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
-    localStorage.setItem(DEVICE_ID_KEY, id);
   }
   if (!code) {
     code = generateDeviceCode();
-    localStorage.setItem(DEVICE_CODE_KEY, code);
   }
+  persistDeviceIdentity(id, code);
   return { id, code };
+}
+
+function persistDeviceIdentity(id, code) {
+  safeStorageSet(DEVICE_ID_KEY, id);
+  safeStorageSet(DEVICE_CODE_KEY, code);
+  writeCookie(DEVICE_COOKIE_ID, id);
+  writeCookie(DEVICE_COOKIE_CODE, code);
+}
+
+function safeStorageGet(key) {
+  try {
+    return localStorage.getItem(key);
+  } catch {
+    return "";
+  }
+}
+
+function safeStorageSet(key, value) {
+  try {
+    localStorage.setItem(key, value);
+  } catch {}
+}
+
+function readCookie(name) {
+  const match = document.cookie.match(new RegExp(`(?:^|; )${name}=([^;]*)`));
+  return match ? decodeURIComponent(match[1]) : "";
+}
+
+function writeCookie(name, value) {
+  document.cookie = `${name}=${encodeURIComponent(value)}; max-age=31536000; path=/; SameSite=Lax`;
 }
 
 function generateDeviceCode() {
@@ -275,6 +306,10 @@ function initDeviceApproval() {
   ref.onSnapshot((doc) => {
     if (!doc.exists) return;
     state.deviceRecord = doc.data();
+    if (state.deviceRecord.deviceCode) {
+      state.device.code = state.deviceRecord.deviceCode;
+      persistDeviceIdentity(state.device.id, state.device.code);
+    }
     state.deviceStatus = state.deviceRecord.status || "pending";
     if (state.deviceStatus === "approved") startCaseSync();
     render();
