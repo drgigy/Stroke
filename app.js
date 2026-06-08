@@ -4,6 +4,7 @@ const DEVICE_CODE_KEY = "rajagiri-strokecode-device-code-v1";
 const DEVICE_COOKIE_ID = "rsc_device_id";
 const DEVICE_COOKIE_CODE = "rsc_device_code";
 const ACCESS_SETTINGS_KEY = "rajagiri-strokecode-access-v1";
+const KPI_ADMIN_KEY = "rajagiri-strokecode-kpi-admin-v1";
 const FIRESTORE_COLLECTION = "strokeCases";
 const DEVICE_COLLECTION = "deviceApprovals";
 const defaultAccessSettings = {
@@ -16,18 +17,35 @@ const erStages = [
   ["arrival", "Arrival at ER"],
   ["codeStroke", "Code Stroke Activated"],
   ["neuroInformed", "Neurology Informed"],
-  ["initialOrders", "Initial Orders Completed"],
-  ["ctInformed", "CT Informed"],
+  ["initialOrders", "Completed Neurological Examination"],
+  ["dysphagiaScreening", "Initial Dysphagia Screening Completed"],
+  ["ctInformed", "Brain Imaging Requested / CT Informed"],
   ["shiftToCt", "Shift to CT"]
 ];
 
 const ctStages = [
   ["reachedCt", "Reached CT"],
-  ["ncctStarted", "NCCT Started"],
+  ["ncctStarted", "First Brain Imaging / NCCT Started"],
   ["ncctCompleted", "NCCT Completed"],
   ["ctaStarted", "CTA/CTP Started"],
   ["ctaCompleted", "CTA/CTP Completed"],
   ["imagingReviewed", "Imaging Reviewed"]
+];
+
+const mriStages = [
+  ["shiftToMri", "Shift to MRI"],
+  ["reachedMri", "Reached MRI"],
+  ["mriStarted", "MRI Started"],
+  ["mriCompleted", "MRI Completed"],
+  ["mriImagingReviewed", "Imaging Reviewed"]
+];
+
+const wardStages = [
+  ["strokeUnitAdmission", "Admitted to Stroke Unit"],
+  ["physiotherapyAssessment", "Physiotherapy / Rehabilitation Assessment"],
+  ["speechTherapyAssessment", "Speech Therapy Dysphagia Reassessment"],
+  ["strokeUnitDischarge", "Discharged from Stroke Unit"],
+  ["hospitalDischarge", "Hospital Discharge"]
 ];
 
 const mtStages = [
@@ -54,6 +72,77 @@ const metricDefs = [
 
 const delayReasons = ["Transfer Delay", "Notification Delay", "CT Busy", "Consent Delay", "Cathlab Delay", "Other"];
 const manualReasons = ["Missed entry", "Observer delayed", "Retrospective correction", "Network issue", "Other"];
+const kpiTimestampFields = [
+  ["hospitalAdmissionTime", "Hospital Admission Time"],
+  ["strokeRecognitionTime", "Stroke Recognition Time (for Inpatient Stroke)"],
+  ["physiotherapyAssessmentTime", "Physiotherapy Assessment Time"],
+  ["speechTherapyAssessmentTime", "Speech Therapy Assessment Time"],
+  ["dischargeTime", "Discharge Time"],
+  ["diagnosticImagingRequestTime", "Diagnostic Imaging Request Time"],
+  ["diagnosticImagingPresentationTime", "Presented to Imaging Service Time"],
+  ["diagnosticImagingStartTime", "Diagnostic Imaging Start Time"],
+  ["strokeUnitAdmissionTime", "Stroke Unit Admission Time"],
+  ["strokeUnitDischargeTime", "Stroke Unit Discharge Time"],
+  ["sichAfterIvtTime", "sICH Event Time after IVT"],
+  ["sichAfterEvtTime", "sICH Event Time after EVT"],
+  ["deathTime", "Date and Time of Death"],
+  ["carotidProcedureTime", "CEA/Carotid Procedure Time"],
+  ["carotidStrokeDeathTime", "Stroke/Death Time after CEA/Carotid Procedure"],
+  ["diagnosticAngiographyTime", "Diagnostic Cerebral Angiography Time"],
+  ["diagnosticAngiographyStrokeDeathTime", "Stroke/Death Time after Diagnostic Angiography"],
+  ["intracranialProcedureTime", "Intracranial Angioplasty/Stenting Time"],
+  ["intracranialStrokeDeathTime", "Stroke/Death Time after Intracranial Procedure"]
+];
+const kpiYesNoFields = [
+  ["evtIndicated", "EVT Indicated"],
+  ["largeVesselOcclusion", "Large Vessel Occlusion"],
+  ["ivtGiven", "IV Thrombolysis Given"],
+  ["evtPerformed", "EVT Performed"],
+  ["sichAfterIvt", "Symptomatic Intracranial Hemorrhage after IVT"],
+  ["sichAfterIvtNihssIncrease", "NIHSS Deterioration of 4 or More after IVT"],
+  ["sichAfterIvtImagingConfirmed", "Hemorrhage Confirmed on Imaging after IVT"],
+  ["sichAfterEvt", "Symptomatic Intracranial Hemorrhage after EVT"],
+  ["sichAfterEvtNihssIncrease", "NIHSS Deterioration of 4 or More after EVT"],
+  ["sichAfterEvtImagingConfirmed", "Hemorrhage Confirmed on Imaging after EVT"],
+  ["medicationError", "Medication Error"],
+  ["deathWithin7Days", "Death within 7 Days of Admission"],
+  ["deathInHospital", "Death Occurred in Hospital"],
+  ["ceaPerformed", "CEA Performed"],
+  ["carotidAngioplastyStentingPerformed", "Carotid Angioplasty/Stenting Performed"],
+  ["strokeDeath30DaysAfterCea", "Stroke or Death within 30 Days after CEA/Carotid Procedure"],
+  ["diagnosticAngiographyPerformed", "Diagnostic Cerebral Angiography Performed"],
+  ["strokeDeath24HoursAfterAngiography", "Stroke or Death within 24 Hours after Diagnostic Angiography"],
+  ["intracranialAngioplastyStentingPerformed", "Intracranial Angioplasty/Stenting Performed"],
+  ["strokeDeath30DaysAfterAngioplastyStenting", "Stroke or Death within 30 Days after Intracranial Angioplasty/Stenting"],
+  ["evdInserted", "EVD Inserted"],
+  ["ventriculitisAfterEvd", "Ventriculitis after EVD"],
+  ["dvtAfterAdmission", "Deep Venous Thrombosis after Admission"],
+  ["pressureUlcerNewWorsening", "New/Worsening Pressure Ulcer after Admission"],
+  ["patientFall", "Patient Fall"],
+  ["diagnosticImagingPerformed", "Diagnostic Imaging Performed"],
+  ["intraArterialThrombolysis", "Intra-Arterial Thrombolysis Performed"],
+  ["rehabilitationRequired", "Rehabilitation Required"],
+  ["rehabilitationProvided", "Rehabilitation Provided"],
+  ["followup90DayCompleted", "90-Day Follow-up Completed"]
+];
+const workflowKpiKeys = new Set(["evtIndicated", "largeVesselOcclusion", "ivtGiven", "evtPerformed"]);
+const kpiAnswerOptions = ["Yes", "No", "Pending", "Not applicable"];
+const kpiNumberFields = [
+  ["patientFallCount", "Number of Patient Falls", "0"],
+  ["medicationErrorCount", "Number of Medication Errors", "0"]
+];
+const kpiScoreFields = [
+  ["strokePresentationType", "Stroke Presentation Type", ["", "ER arrival", "Inpatient stroke"]],
+  ["mrsDischarge", "Modified Rankin Score at Discharge", ["", "0", "1", "2", "3", "4", "5", "6"]],
+  ["mrs90Days", "Modified Rankin Score at 90 Days", ["", "0", "1", "2", "3", "4", "5", "6"]],
+  ["evtArrivalType", "EVT Arrival Type", ["", "Direct arrival", "Transfer"]],
+  ["pressureUlcerStage", "Pressure Ulcer Stage", ["", "No ulcer", "Stage 1", "Stage 2", "Stage 3", "Stage 4", "Unstageable", "Deep tissue injury"]]
+];
+const kpiAdminDefaults = {
+  medicationErrorOpportunities: "",
+  thrombolyticStockouts: "",
+  thrombolyticFormularyDrugs: ""
+};
 const signoffStageRequirements = [
   ["arrival", "Arrival at ER", "er"],
   ["codeStroke", "Code Stroke Activated", "er"],
@@ -112,10 +201,11 @@ let state = {
   view: "home",
   cases: loadCases(),
   activeCaseId: null,
-  openSections: { er: true, ct: true },
+  openSections: { er: true, ct: true, ward: false },
   manualTarget: null,
   noteTarget: null,
   stopTarget: null,
+  kpiTarget: null,
   device: loadDeviceIdentity(),
   deviceStatus: "checking",
   deviceRecord: null,
@@ -126,6 +216,13 @@ let state = {
   adminMessage: "",
   installMessage: "",
   deferredInstallPrompt: null,
+  kpiAdminMonth: monthKey(new Date()),
+  kpiAdminData: loadKpiAdminData(),
+  kpiView: "summary",
+  kpiRangePreset: "month",
+  kpiRangeStart: dateInputValue(startOfMonth(new Date())),
+  kpiRangeEnd: dateInputValue(new Date()),
+  selectedKpiNo: 1,
   tick: Date.now()
 };
 
@@ -146,7 +243,7 @@ let cloudSync = {
 
 setInterval(() => {
   state.tick = Date.now();
-  if (["timeline", "home", "cases", "dashboard"].includes(state.view) && !state.manualTarget && !state.noteTarget && !state.stopTarget) render();
+  if (["timeline", "home", "cases", "dashboard"].includes(state.view) && !state.manualTarget && !state.noteTarget && !state.stopTarget && !state.kpiTarget) render();
 }, 1000);
 
 if ("serviceWorker" in navigator) {
@@ -181,6 +278,18 @@ function loadAccessSettings() {
   } catch {
     return { ...defaultAccessSettings };
   }
+}
+
+function loadKpiAdminData() {
+  try {
+    return JSON.parse(localStorage.getItem(KPI_ADMIN_KEY)) || {};
+  } catch {
+    return {};
+  }
+}
+
+function saveKpiAdminData() {
+  localStorage.setItem(KPI_ADMIN_KEY, JSON.stringify(state.kpiAdminData));
 }
 
 function loadDeviceIdentity() {
@@ -381,7 +490,7 @@ function render() {
     app.appendChild(h("main", { class: "app-shell lock-shell" }, deviceApprovalScreen()));
     return;
   }
-  app.appendChild(h("main", { class: "app-shell" }, [topbar(), screen(), bottomNav(), manualModal(), noteModal(), stopModal()]));
+  app.appendChild(h("main", { class: "app-shell" }, [topbar(), screen(), bottomNav(), manualModal(), noteModal(), stopModal(), kpiModal()]));
 }
 
 function deviceApprovalScreen() {
@@ -427,6 +536,7 @@ function bottomNav() {
     navButton("home", "Home"),
     navButton("cases", "Cases"),
     navButton("dashboard", "Dashboard"),
+    navButton("kpi", "KPI"),
     navButton("more", "More")
   ]);
 }
@@ -443,6 +553,7 @@ function screen() {
   if (state.view === "mt") return mtScreen();
   if (state.view === "summary") return summaryScreen();
   if (state.view === "dashboard") return dashboardScreen();
+  if (state.view === "kpi") return kpiScreen();
   if (state.view === "cases") return casesScreen();
   if (state.view === "more") return moreScreen();
   return homeScreen();
@@ -510,6 +621,11 @@ function createScreen() {
           },
           ivt: { eligible: "", consent: "", notGivenReason: "" },
           mt: { evtConsent: "", tici: "" },
+          kpi: {
+            ...defaultKpiData(),
+            strokePresentationType: form.get("strokePresentationType") || "ER arrival",
+            hospitalAdmissionTime: arrival
+          },
           stageNotes: {},
           delayReason: "",
           caseComment: "",
@@ -534,6 +650,7 @@ function createScreen() {
         field("Gender", select("gender", ["Male", "Female", "Other"]))
       ]),
       field("UHID (optional)", h("input", { name: "uhid", placeholder: "UHID" })),
+      field("Stroke Presentation Type", choiceButtons("strokePresentationType", ["ER arrival", "Inpatient stroke"], "ER arrival")),
       field("Stroke Suspicion", choiceButtons("suspicion", ["Ischemic Stroke", "LVO Suspected", "Hemorrhage", "Unknown"])),
       h("div", { class: "section-heading compact-heading" }, [h("h2", {}, "Clinical Snapshot")]),
       field("NIHSS Score", nihssCalculator()),
@@ -570,6 +687,8 @@ function timelineScreen() {
     h("button", { class: "secondary-btn full-width-action", onclick: () => go("edit", item.id) }, "EDIT CASE DETAILS / NIHSS"),
     accordion("er", "SECTION 1 - ER PHASE", erStages, item),
     accordion("ct", "SECTION 2 - CT PHASE", ctStages, item),
+    accordion("mri", "SECTION 3 - MRI PHASE", mriStages, item),
+    accordion("ward", "SECTION 4 - WARD / DISCHARGE", wardStages, item),
     h("div", { class: "section-card" }, [
       pathwayCard("IV THROMBOLYSIS", ivtStatus(item), () => go("ivt", item.id)),
       pathwayCard("MECHANICAL THROMBECTOMY", mtStatus(item), () => go("mt", item.id))
@@ -639,6 +758,8 @@ function liveCasesPanel() {
 function jumpToTrackerStep(caseId, stageId) {
   if (erStages.some(([id]) => id === stageId)) state.openSections.er = true;
   if (ctStages.some(([id]) => id === stageId)) state.openSections.ct = true;
+  if (mriStages.some(([id]) => id === stageId)) state.openSections.mri = true;
+  if (wardStages.some(([id]) => id === stageId)) state.openSections.ward = true;
   go("timeline", caseId);
 }
 
@@ -657,6 +778,7 @@ function editCaseScreen() {
         item.age = form.get("age") || "";
         item.gender = form.get("gender") || "";
         item.uhid = form.get("uhid") || "";
+        item.kpi = { ...defaultKpiData(), ...(item.kpi || {}), strokePresentationType: form.get("strokePresentationType") || "ER arrival" };
         item.suspicion = form.get("suspicion") || "Ischemic Stroke";
         item.nihssBreakdown = getNihssItems().reduce((scores, nihssItem) => {
           const value = form.get(`nihss_${nihssItem[0]}`);
@@ -676,6 +798,7 @@ function editCaseScreen() {
         field("Gender", select("gender", ["Male", "Female", "Other"], item.gender || "Male"))
       ]),
       field("UHID (optional)", h("input", { name: "uhid", placeholder: "UHID", value: item.uhid || "" })),
+      field("Stroke Presentation Type", choiceButtons("strokePresentationType", ["ER arrival", "Inpatient stroke"], kpiValue(item, "strokePresentationType") || "ER arrival")),
       field("Stroke Suspicion", choiceButtons("suspicion", ["Ischemic Stroke", "LVO Suspected", "Hemorrhage", "Unknown"], item.suspicion || "Ischemic Stroke")),
       h("div", { class: "section-heading compact-heading" }, [h("h2", {}, "Clinical Snapshot")]),
       field("NIHSS Score", nihssCalculator(item.nihssBreakdown || {})),
@@ -761,6 +884,7 @@ function ivtScreen() {
     title("IV Thrombolysis", `${item.id} | ${item.patientName}`),
     h("div", { class: "form-card" }, [
       optionField("IVT Eligible", "eligible", item.ivt.eligible, ["Yes", "No"], (value) => updateNested(item.id, "ivt", "eligible", value)),
+      optionField("IV Thrombolysis Given", "ivtGiven", kpiValue(item, "ivtGiven"), ["Yes", "No"], (value) => updateKpiField(item.id, "ivtGiven", value)),
       stageRow(item, "ivtConsent", "IVT Consent Taken"),
       stageRow(item, "ivtStarted", "IVT Started / Bolus Given"),
       item.ivt.eligible === "No" ? field("If IVT not given", select("notGivenReason", ["Outside window", "Hemorrhage", "Anticoagulant", "Family refusal", "Clinical decision", "Other"], item.ivt.notGivenReason, (value) => updateNested(item.id, "ivt", "notGivenReason", value))) : null,
@@ -775,6 +899,10 @@ function mtScreen() {
   return h("section", {}, [
     title("Mechanical Thrombectomy", `${item.id} | ${item.patientName}`),
     h("div", { class: "form-card" }, [
+      optionField("EVT Indicated", "evtIndicated", kpiValue(item, "evtIndicated"), ["Yes", "No"], (value) => updateKpiField(item.id, "evtIndicated", value)),
+      optionField("Large Vessel Occlusion", "largeVesselOcclusion", kpiValue(item, "largeVesselOcclusion"), ["Yes", "No"], (value) => updateKpiField(item.id, "largeVesselOcclusion", value)),
+      optionField("EVT Performed", "evtPerformed", kpiValue(item, "evtPerformed"), ["Yes", "No"], (value) => updateKpiField(item.id, "evtPerformed", value)),
+      field("Patient Arrival Type", select("evtArrivalType", ["", "Direct arrival", "Transfer"], kpiValue(item, "evtArrivalType"), (value) => updateKpiField(item.id, "evtArrivalType", value))),
       stageRow(item, "evtConsent", "EVT Consent Taken"),
       ...mtStages.map(([id, labelText]) => stageRow(item, id, labelText)),
       field("Final TICI Score", select("tici", ["", "0", "1", "2A", "2B", "2C", "3"], item.mt.tici, (value) => updateNested(item.id, "mt", "tici", value))),
@@ -861,7 +989,7 @@ function handlePendingClick(caseId, entry) {
 function dashboardScreen() {
   const today = todaysCases();
   const statusCounts = today.reduce((acc, item) => {
-    const status = caseStatus(item).label;
+    const status = performanceStatus(item).label;
     acc[status] = (acc[status] || 0) + 1;
     return acc;
   }, {});
@@ -882,6 +1010,692 @@ function dashboardScreen() {
     dashboardNotes(),
     h("div", { class: "desktop-two", style: "margin-top:14px" }, [delayChart(), trendChart()])
   ]);
+}
+
+function kpiScreen() {
+  const range = selectedKpiRange();
+  const cases = casesForRange(range.start, range.end);
+  const admin = kpiAdminForRange(range.start, range.end);
+  const report = buildNabhKpiReport(cases, admin);
+  const selected = report.find((item) => item.no === state.selectedKpiNo) || report[0];
+  const monthly = monthlyKpiTrend(range.start, range.end, state.selectedKpiNo);
+  const singleMonth = monthKey(range.start) === monthKey(range.end);
+  if (singleMonth) state.kpiAdminMonth = monthKey(range.start);
+  return h("section", {}, [
+    title("NABH KPI Analysis", `Reporting period: ${formatReportDate(range.start)} to ${formatReportDate(range.end)}`),
+    kpiRangeControls(),
+    h("div", { class: "kpi-view-tabs" }, [
+      kpiViewButton("summary", "Summary"),
+      kpiViewButton("trends", "Trends"),
+      kpiViewButton("reports", "Reports")
+    ]),
+    h("div", { class: "kpi-toolbar" }, [
+      metricCard("Cases in period", cases.length || "0"),
+      metricCard("Completed KPI fields", `${cases.reduce((sum, item) => sum + kpiCompletion(item).completed, 0)}/${cases.length * defaultKpiFieldCount()}`),
+      metricCard("Final KPI results", report.filter((item) => !item.provisional && item.denominator > 0).length)
+    ]),
+    state.kpiView === "trends"
+      ? kpiTrendsView(report, selected, monthly)
+      : state.kpiView === "reports"
+        ? kpiReportsView(report, cases, range)
+        : h("div", {}, [
+            heading("NABH KPI Summary"),
+            h("div", { class: "kpi-report-grid" }, report.map(kpiResultCard))
+          ]),
+    singleMonth ? kpiAdminPanel(state.kpiAdminMonth, kpiAdminForMonth(state.kpiAdminMonth)) : h("div", { class: "kpi-period-note" }, "Monthly admin inputs are combined automatically across this reporting period. Select a single month to edit them.")
+  ]);
+}
+
+function kpiRangeControls() {
+  return h("div", { class: "kpi-range-panel" }, [
+    h("div", { class: "kpi-range-presets" }, [
+      kpiPresetButton("month", "This month"),
+      kpiPresetButton("quarter", "Quarter"),
+      kpiPresetButton("year", "Year"),
+      kpiPresetButton("custom", "Custom")
+    ]),
+    h("div", { class: "kpi-date-range" }, [
+      field("From", h("input", {
+        type: "date",
+        value: state.kpiRangeStart,
+        onchange: (event) => {
+          state.kpiRangePreset = "custom";
+          state.kpiRangeStart = event.target.value;
+          render();
+        }
+      })),
+      field("To", h("input", {
+        type: "date",
+        value: state.kpiRangeEnd,
+        onchange: (event) => {
+          state.kpiRangePreset = "custom";
+          state.kpiRangeEnd = event.target.value;
+          render();
+        }
+      }))
+    ])
+  ]);
+}
+
+function kpiPresetButton(preset, label) {
+  return h("button", {
+    type: "button",
+    class: state.kpiRangePreset === preset ? "active" : "",
+    onclick: () => applyKpiPreset(preset)
+  }, label);
+}
+
+function kpiViewButton(view, label) {
+  return h("button", {
+    type: "button",
+    class: state.kpiView === view ? "active" : "",
+    onclick: () => {
+      state.kpiView = view;
+      render();
+    }
+  }, label);
+}
+
+function kpiTrendsView(report, selected, monthly) {
+  const range = selectedKpiRange();
+  return h("div", {}, [
+    heading("Monthly Trends"),
+    field("KPI to graph", select("selectedKpiNo", report.map((item) => `${item.no}. ${item.title}`), `${selected.no}. ${selected.title}`, (value) => {
+      state.selectedKpiNo = Number(value.split(".")[0]);
+      render();
+    })),
+    h("div", { class: "kpi-detail-chart" }, [
+      h("div", { class: "kpi-detail-head" }, [
+        h("div", {}, [h("span", {}, `KPI ${selected.no}`), h("h2", {}, selected.title)]),
+        h("strong", {}, selected.value)
+      ]),
+      monthly.length ? h("div", { class: "kpi-month-chart" }, monthly.map((point) => kpiMonthBar(point, selected.no))) : empty("No monthly data in this period.")
+    ]),
+    h("div", { class: "kpi-trend-actions" }, [
+      h("button", { type: "button", class: "secondary-btn", onclick: () => exportAllKpiTrendsPng(report, range) }, "EXPORT ALL TRENDS PNG")
+    ]),
+    heading("All 24 KPI Trends"),
+    h("div", { class: "kpi-trend-gallery" }, report.map((item) => kpiTrendTile(item, range)))
+  ]);
+}
+
+function kpiTrendTile(item, range) {
+  const points = monthlyKpiTrend(range.start, range.end, item.no);
+  return h("button", {
+    type: "button",
+    class: "kpi-trend-tile",
+    onclick: () => {
+      state.selectedKpiNo = item.no;
+      render();
+      requestAnimationFrame(() => document.querySelector(".kpi-detail-chart")?.scrollIntoView({ behavior: "smooth", block: "start" }));
+    }
+  }, [
+    h("div", { class: "kpi-trend-tile-head" }, [
+      h("span", {}, `KPI ${item.no}`),
+      h("strong", {}, item.value)
+    ]),
+    h("p", {}, item.title),
+    h("div", { class: "kpi-sparkline" }, points.map((point) => {
+      const max = kpiChartMax(item.no, point.value || 0);
+      const height = point.value == null ? 3 : Math.max(3, Math.min(100, Math.round((point.value / max) * 100)));
+      return h("i", { class: point.provisional ? "pending" : "", style: `height:${height}%`, title: `${point.label}: ${point.value == null ? "--" : formatKpiChartValue(item.no, point.value)}` });
+    }))
+  ]);
+}
+
+function kpiMonthBar(point, kpiNo) {
+  const max = kpiChartMax(kpiNo, point.value);
+  const height = point.value == null ? 4 : Math.max(4, Math.min(100, Math.round((point.value / max) * 100)));
+  return h("div", { class: "kpi-month-column" }, [
+    h("span", {}, point.value == null ? "--" : formatKpiChartValue(kpiNo, point.value)),
+    h("div", { class: "kpi-month-track" }, h("i", { class: point.provisional ? "pending" : "", style: `height:${height}%` })),
+    h("small", {}, point.label)
+  ]);
+}
+
+function kpiReportsView(report, cases, range) {
+  return h("div", {}, [
+    heading("Export Report"),
+    h("div", { class: "kpi-export-grid" }, [
+      exportAction("CSV", "Numerator, denominator, result and status", () => exportKpiCsv(report, range)),
+      exportAction("JSON", "Structured KPI report and period details", () => exportKpiJson(report, cases, range)),
+      exportAction("PNG", "Shareable graphical summary image", () => exportKpiPng(report, cases, range)),
+      exportAction("TRENDS PNG", "All 24 monthly KPI trend graphs", () => exportAllKpiTrendsPng(report, range)),
+      exportAction("PRINT / PDF", "Print or save the full report as PDF", () => window.print())
+    ]),
+    heading("Report Preview"),
+    h("div", { class: "kpi-trend-gallery report-trend-gallery" }, report.map((item) => kpiTrendTile(item, range)))
+  ]);
+}
+
+function exportAction(label, description, onclick) {
+  return h("button", { type: "button", class: "kpi-export-action", onclick }, [
+    h("strong", {}, label),
+    h("span", {}, description)
+  ]);
+}
+
+function kpiAdminPanel(month, admin) {
+  return h("form", {
+    class: "signoff-card kpi-admin-card",
+    onsubmit: (event) => {
+      event.preventDefault();
+      const form = new FormData(event.currentTarget);
+      state.kpiAdminData[month] = Object.keys(kpiAdminDefaults).reduce((data, key) => {
+        data[key] = form.get(key) || "";
+        return data;
+      }, {});
+      saveKpiAdminData();
+      render();
+    }
+  }, [
+    h("div", { class: "section-heading compact-heading" }, [h("h2", {}, "Monthly Admin Inputs")]),
+    h("p", { class: "settings-help" }, "Only these hospital-level values cannot be derived from individual patient records. They can be completed later."),
+    h("div", { class: "kpi-admin-grid" }, [
+      field("Medication-error opportunities", h("input", { name: "medicationErrorOpportunities", type: "number", min: "0", value: admin.medicationErrorOpportunities })),
+      field("Thrombolytic stock-outs", h("input", { name: "thrombolyticStockouts", type: "number", min: "0", value: admin.thrombolyticStockouts })),
+      field("Thrombolytic formulary drugs", h("input", { name: "thrombolyticFormularyDrugs", type: "number", min: "0", value: admin.thrombolyticFormularyDrugs }))
+    ]),
+    h("button", { class: "primary-cta", type: "submit" }, "SAVE MONTHLY INPUTS")
+  ]);
+}
+
+function buildNabhKpiReport(cases, admin) {
+  const ischemicCases = cases.filter((item) => ["Ischemic Stroke", "LVO Suspected"].includes(item.suspicion));
+  const inpatientCases = cases.filter((item) => kpiValue(item, "strokePresentationType") === "Inpatient stroke");
+  const strokeUnitPatientDays = cases.reduce((sum, item) => sum + patientStrokeUnitDays(item), 0);
+  const patientFalls = cases.reduce((sum, item) => sum + patientFallCount(item), 0);
+  const diagnosticCases = cases.filter((item) => kpiValue(item, "diagnosticImagingPerformed") === "Yes" || Boolean(kpiValue(item, "diagnosticImagingStartTime")));
+  const brainImagingCases = cases.filter((item) => kpiValue(item, "diagnosticImagingPerformed") === "Yes" || Boolean(stageTime(item, "ncctStarted")));
+  const ivtCases = cases.filter((item) => item.ivt?.eligible === "Yes" || kpiValue(item, "ivtGiven") === "Yes");
+  const evtCases = cases.filter((item) => kpiValue(item, "evtPerformed") === "Yes" || Boolean(stageTime(item, "groinPuncture")));
+  const carotidCases = cases.filter((item) => kpiValue(item, "ceaPerformed") === "Yes" || kpiValue(item, "carotidAngioplastyStentingPerformed") === "Yes");
+  const angiographyCases = cases.filter((item) => kpiValue(item, "diagnosticAngiographyPerformed") === "Yes");
+  const intracranialCases = cases.filter((item) => kpiValue(item, "intracranialAngioplastyStentingPerformed") === "Yes");
+  const reperfusionCases = ischemicCases.filter((item) =>
+    kpiValue(item, "evtPerformed") === "Yes" ||
+    kpiValue(item, "intraArterialThrombolysis") === "Yes" ||
+    Boolean(item.mt?.tici)
+  );
+  return [
+    averageKpi(1, "Time to first brain imaging", brainImagingCases, (item) => minutesBetween(strokeReferenceTime(item), stageTime(item, "ncctStarted")), "Average minutes"),
+    dualIvtComplianceKpi(ivtCases),
+    verifiedOutcomeKpi(3, "sICH after IVT", ivtCases, "sichAfterIvt", (item) => validatedSich(item, "Ivt", stageTime(item, "ivtStarted"))),
+    averageKpi(4, "Time to detailed neurological assessment of inpatients", inpatientCases, (item) => minutesBetween(kpiValue(item, "strokeRecognitionTime"), stageTime(item, "initialOrders")), "Average minutes"),
+    percentageKpi(5, "Dysphagia screening documented", cases, null, (item) => kpiValue(item, "dysphagiaScreening") === "Yes"),
+    percentageKpi(6, "Rehab assessment within 48 hours", cases, null, (item) => withinIsoMinutes(admissionReferenceTime(item), kpiValue(item, "physiotherapyAssessmentTime"), 48 * 60)),
+    verifiedRankinKpi(cases.filter((item) => kpiValue(item, "followup90DayCompleted") === "Yes" || kpiValue(item, "mrs90Days") !== "")),
+    verifiedRatioKpi(8, "Medication errors", cases, "medicationError", medicationErrorTotal(cases), num(admin.medicationErrorOpportunities), "%"),
+    verifiedOutcomeKpi(9, "Death in hospital within 7 days", cases, "deathWithin7Days", verifiedDeathWithin7Days),
+    verifiedOutcomeKpi(10, "CEA/carotid procedure stroke or death within 30 days", carotidCases, "strokeDeath30DaysAfterCea", (item) => verifiedWithinWindow(item, "carotidProcedureTime", "carotidStrokeDeathTime", 30 * 24 * 60)),
+    verifiedOutcomeKpi(11, "Stroke/death within 24 hours after diagnostic angiography", angiographyCases, "strokeDeath24HoursAfterAngiography", (item) => verifiedWithinWindow(item, "diagnosticAngiographyTime", "diagnosticAngiographyStrokeDeathTime", 24 * 60)),
+    verifiedRatioKpi(12, "Hospital-associated pressure ulcer", cases, "pressureUlcerNewWorsening", pressureUlcerCount(cases), strokeUnitPatientDays, "%", (item) =>
+      kpiValue(item, "pressureUlcerNewWorsening") === "No" || Boolean(kpiValue(item, "pressureUlcerStage"))
+    ),
+    verifiedOutcomeKpi(13, "DVT after admission", cases, "dvtAfterAdmission", (item) => kpiValue(item, "dvtAfterAdmission") === "Yes"),
+    averageKpi(14, "Waiting time for imaging services", diagnosticCases, diagnosticWaitingMinutes, "Average minutes"),
+    ratioKpi(15, "Thrombolytic-agent stock-outs", num(admin.thrombolyticStockouts), num(admin.thrombolyticFormularyDrugs), "%"),
+    verifiedRateKpi(16, "Patient falls", cases, "patientFall", patientFalls, strokeUnitPatientDays, 1000, "per 1000 patient days"),
+    percentageKpi(17, "EVT within defined timeframe", ischemicCases.filter((item) => kpiValue(item, "evtIndicated") === "Yes"), null, evtWithinTarget),
+    verifiedOutcomeKpi(18, "sICH after EVT", evtCases, "sichAfterEvt", (item) => validatedSich(item, "Evt", stageTime(item, "firstPass") || stageTime(item, "groinPuncture"))),
+    percentageKpi(19, "Speech therapy dysphagia reassessment within 24 hours", cases, null, (item) => withinIsoMinutes(admissionReferenceTime(item), kpiValue(item, "speechTherapyAssessmentTime"), 24 * 60)),
+    verifiedOutcomeKpi(20, "Intracranial angioplasty/stenting stroke or death within 30 days", intracranialCases, "strokeDeath30DaysAfterAngioplastyStenting", (item) => verifiedWithinWindow(item, "intracranialProcedureTime", "intracranialStrokeDeathTime", 30 * 24 * 60)),
+    percentageKpi(21, "Ventriculitis among patients who underwent EVD", ischemicCases.filter((item) => kpiValue(item, "evdInserted") === "Yes"), null, (item) => kpiValue(item, "ventriculitisAfterEvd") === "Yes"),
+    verifiedTiciKpi(reperfusionCases),
+    percentageKpi(23, "LVO EVT first pass within 150 minutes and TICI 2B+", cases.filter((item) => kpiValue(item, "largeVesselOcclusion") === "Yes" && (kpiValue(item, "evtPerformed") === "Yes" || Boolean(stageTime(item, "firstPass")))), null, (item) => withinMinutes(item, "arrival", "firstPass", 150) && ticiGood(item)),
+    percentageKpi(24, "EVT patients achieving TICI 2B+ within 60 minutes of groin puncture", evtCases, null, (item) => withinMinutes(item, "groinPuncture", "recanalisation", 60) && ticiGood(item))
+  ];
+}
+
+function kpiResultCard(result) {
+  const statusClass = result.denominator === 0 || result.denominator == null ? "grey" : result.provisional ? "orange" : result.good === false ? "orange" : "";
+  const numericValue = kpiResultNumeric(result);
+  const width = numericValue == null ? 0 : Math.max(2, Math.min(100, Math.round((numericValue / kpiChartMax(result.no, numericValue)) * 100)));
+  return h("button", {
+    type: "button",
+    class: "kpi-result-card",
+    onclick: () => {
+      state.selectedKpiNo = result.no;
+      state.kpiView = "trends";
+      render();
+    }
+  }, [
+    h("div", { class: "kpi-result-head" }, [
+      h("span", {}, `#${result.no}`),
+      h("strong", {}, result.title)
+    ]),
+    h("div", { class: "kpi-result-value" }, result.value),
+    h("div", { class: "kpi-card-chart" }, h("i", { class: result.provisional ? "pending" : "", style: `width:${width}%` })),
+    h("div", { class: "kpi-result-meta" }, [
+      h("span", {}, result.meta),
+      h("span", { class: `tag ${statusClass}` }, result.provisional ? "DATA PENDING" : result.frequency || "Monthly")
+    ])
+  ]);
+}
+
+function dualIvtComplianceKpi(cases) {
+  const within45 = cases.filter((item) => withinMinutes(item, "arrival", "ivtStarted", 45)).length;
+  const within60 = cases.filter((item) => withinMinutes(item, "arrival", "ivtStarted", 60)).length;
+  const denominator = cases.length;
+  return {
+    no: 2,
+    title: "IVT within defined timeframes",
+    value: denominator ? `${Math.round((within60 / denominator) * 100)}% within 60 min` : "--",
+    numerator: within60,
+    denominator,
+    chartValue: denominator ? (within60 / denominator) * 100 : null,
+    meta: `45 min: ${within45}/${denominator} | 60 min: ${within60}/${denominator}`,
+    frequency: "Continuous"
+  };
+}
+
+function verifiedOutcomeKpi(no, titleText, eligibleCases, answerKey, positiveFn) {
+  const completedCases = eligibleCases.filter((item) => {
+    const answer = kpiValue(item, answerKey);
+    return answer === "No" || (answer === "Yes" && positiveFn(item) !== null);
+  });
+  const numerator = completedCases.filter((item) => kpiValue(item, answerKey) === "Yes" && positiveFn(item) === true).length;
+  const denominator = eligibleCases.length;
+  const complete = completedCases.length;
+  const provisional = complete < denominator;
+  return {
+    no,
+    title: titleText,
+    value: denominator && !provisional ? `${Math.round((numerator / denominator) * 100)}%` : denominator ? "Pending" : "--",
+    numerator,
+    denominator,
+    chartValue: denominator ? (numerator / denominator) * 100 : null,
+    provisional,
+    meta: `${numerator}/${denominator} | complete ${complete}/${denominator}`,
+    frequency: "Monthly"
+  };
+}
+
+function verifiedRatioKpi(no, titleText, cases, answerKey, numerator, denominator, suffix, evidenceComplete = () => true) {
+  const complete = cases.filter((item) => ["Yes", "No"].includes(kpiValue(item, answerKey)) && evidenceComplete(item)).length;
+  const provisional = complete < cases.length;
+  return {
+    no,
+    title: titleText,
+    value: denominator && !provisional ? `${Math.round((numerator / denominator) * 100)}${suffix}` : denominator ? "Pending" : "--",
+    numerator,
+    denominator,
+    chartValue: denominator ? (numerator / denominator) * 100 : null,
+    provisional,
+    meta: `${numerator || 0}/${denominator || 0} | complete ${complete}/${cases.length}`
+  };
+}
+
+function verifiedRateKpi(no, titleText, cases, answerKey, numerator, denominator, multiplier, suffix) {
+  const complete = cases.filter((item) => ["Yes", "No"].includes(kpiValue(item, answerKey))).length;
+  const provisional = complete < cases.length;
+  return {
+    no,
+    title: titleText,
+    value: denominator && !provisional ? `${((numerator / denominator) * multiplier).toFixed(1)}` : denominator ? "Pending" : "--",
+    numerator,
+    denominator,
+    chartValue: denominator ? (numerator / denominator) * multiplier : null,
+    provisional,
+    meta: `${numerator || 0}/${denominator || 0} ${suffix} | complete ${complete}/${cases.length}`
+  };
+}
+
+function verifiedTiciKpi(cases) {
+  const complete = cases.filter((item) => Boolean(item.mt?.tici)).length;
+  const numerator = cases.filter(ticiGood).length;
+  const denominator = cases.length;
+  const provisional = complete < denominator;
+  return {
+    no: 22,
+    title: "TICI 2B or higher after reperfusion therapy",
+    value: denominator && !provisional ? `${Math.round((numerator / denominator) * 100)}%` : denominator ? "Pending" : "--",
+    numerator,
+    denominator,
+    chartValue: denominator ? (numerator / denominator) * 100 : null,
+    provisional,
+    meta: `${numerator}/${denominator} | TICI recorded ${complete}/${denominator}`
+  };
+}
+
+function verifiedRankinKpi(cases) {
+  const complete = cases.filter((item) => kpiValue(item, "mrs90Days") !== "").length;
+  const numerator = cases.filter((item) => rankinGood(kpiValue(item, "mrs90Days"))).length;
+  const denominator = cases.length;
+  const provisional = complete < denominator;
+  return {
+    no: 7,
+    title: "mRS 0-2 at 90 days",
+    value: denominator && !provisional ? `${Math.round((numerator / denominator) * 100)}%` : denominator ? "Pending" : "--",
+    numerator,
+    denominator,
+    chartValue: denominator ? (numerator / denominator) * 100 : null,
+    provisional,
+    meta: `${numerator}/${denominator} | mRS recorded ${complete}/${denominator}`
+  };
+}
+
+function percentageKpi(no, titleText, denominatorCases, included, numeratorFn, frequency = "Monthly") {
+  const denominator = denominatorCases.filter((item) => !included || included(item)).length;
+  const numerator = denominatorCases.filter((item) => (!included || included(item)) && numeratorFn(item)).length;
+  return {
+    no,
+    title: titleText,
+    value: denominator ? `${Math.round((numerator / denominator) * 100)}%` : "--",
+    numerator,
+    denominator,
+    chartValue: denominator ? (numerator / denominator) * 100 : null,
+    meta: `${numerator}/${denominator}`,
+    frequency
+  };
+}
+
+function averageKpi(no, titleText, cases, minutesFn, label) {
+  const values = cases.map(minutesFn).filter((value) => value != null);
+  const total = values.reduce((sum, value) => sum + value, 0);
+  const average = values.length ? Math.round(total / values.length) : null;
+  const provisional = values.length < cases.length;
+  return {
+    no,
+    title: titleText,
+    value: average == null ? "--" : provisional ? "Pending" : `${average} min`,
+    numerator: total,
+    denominator: cases.length,
+    chartValue: average,
+    provisional,
+    meta: `${label} | timed ${values.length}/${cases.length}`
+  };
+}
+
+function averageAdminKpi(no, titleText, numerator, denominator, label) {
+  return {
+    no,
+    title: titleText,
+    value: denominator ? `${Math.round(numerator / denominator)} min` : "--",
+    numerator,
+    denominator,
+    chartValue: denominator ? numerator / denominator : null,
+    meta: `${label} | ${numerator || 0}/${denominator || 0}`
+  };
+}
+
+function ratioKpi(no, titleText, numerator, denominator, suffix) {
+  return {
+    no,
+    title: titleText,
+    value: denominator ? `${Math.round((numerator / denominator) * 100)}${suffix}` : "--",
+    numerator,
+    denominator,
+    chartValue: denominator ? (numerator / denominator) * 100 : null,
+    meta: `${numerator || 0}/${denominator || 0}`
+  };
+}
+
+function rateKpi(no, titleText, numerator, denominator, multiplier, suffix) {
+  return {
+    no,
+    title: titleText,
+    value: denominator ? `${((numerator / denominator) * multiplier).toFixed(1)}` : "--",
+    numerator,
+    denominator,
+    chartValue: denominator ? (numerator / denominator) * multiplier : null,
+    meta: `${numerator || 0}/${denominator || 0} ${suffix}`
+  };
+}
+
+function kpiAdminForMonth(month) {
+  return { ...kpiAdminDefaults, ...(state.kpiAdminData[month] || {}) };
+}
+
+function casesForMonth(month) {
+  return state.cases.filter((item) => monthKey(new Date(item.arrivalTime)) === month);
+}
+
+function selectedKpiRange() {
+  let start = parseDateInput(state.kpiRangeStart) || startOfMonth(new Date());
+  let end = parseDateInput(state.kpiRangeEnd) || new Date();
+  if (start > end) [start, end] = [end, start];
+  end = endOfDay(end);
+  return { start, end };
+}
+
+function applyKpiPreset(preset) {
+  const now = new Date();
+  let start = startOfMonth(now);
+  if (preset === "quarter") start = new Date(now.getFullYear(), Math.floor(now.getMonth() / 3) * 3, 1);
+  if (preset === "year") start = new Date(now.getFullYear(), 0, 1);
+  state.kpiRangePreset = preset;
+  if (preset !== "custom") {
+    state.kpiRangeStart = dateInputValue(start);
+    state.kpiRangeEnd = dateInputValue(now);
+  }
+  render();
+}
+
+function casesForRange(start, end) {
+  return state.cases.filter((item) => {
+    const date = new Date(item.arrivalTime);
+    return date >= start && date <= end;
+  });
+}
+
+function kpiAdminForRange(start, end) {
+  const months = monthsInRange(start, end);
+  const values = months.map(kpiAdminForMonth);
+  return {
+    medicationErrorOpportunities: values.reduce((sum, item) => sum + num(item.medicationErrorOpportunities), 0),
+    thrombolyticStockouts: values.reduce((sum, item) => sum + num(item.thrombolyticStockouts), 0),
+    thrombolyticFormularyDrugs: values.reduce((latest, item) => item.thrombolyticFormularyDrugs !== "" ? num(item.thrombolyticFormularyDrugs) : latest, 0)
+  };
+}
+
+function monthlyKpiTrend(start, end, kpiNo) {
+  return monthsInRange(start, end).map((month) => {
+    const monthStart = new Date(`${month}-01T00:00:00`);
+    const monthEnd = new Date(monthStart.getFullYear(), monthStart.getMonth() + 1, 0, 23, 59, 59, 999);
+    const item = buildNabhKpiReport(casesForRange(monthStart, monthEnd), kpiAdminForMonth(month)).find((entry) => entry.no === kpiNo);
+    return {
+      label: monthStart.toLocaleDateString([], { month: "short", year: "2-digit" }),
+      value: kpiResultNumeric(item),
+      provisional: item?.provisional || false
+    };
+  });
+}
+
+function monthsInRange(start, end) {
+  const months = [];
+  const cursor = new Date(start.getFullYear(), start.getMonth(), 1);
+  const last = new Date(end.getFullYear(), end.getMonth(), 1);
+  while (cursor <= last) {
+    months.push(monthKey(cursor));
+    cursor.setMonth(cursor.getMonth() + 1);
+  }
+  return months;
+}
+
+function startOfMonth(date) {
+  return new Date(date.getFullYear(), date.getMonth(), 1);
+}
+
+function endOfDay(date) {
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate(), 23, 59, 59, 999);
+}
+
+function parseDateInput(value) {
+  if (!value) return null;
+  const [year, month, day] = value.split("-").map(Number);
+  return new Date(year, month - 1, day);
+}
+
+function dateInputValue(date) {
+  const local = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
+  return local.toISOString().slice(0, 10);
+}
+
+function formatReportDate(date) {
+  return date.toLocaleDateString([], { day: "2-digit", month: "short", year: "numeric" });
+}
+
+function kpiResultNumeric(result) {
+  if (!result) return null;
+  if (result.chartValue != null) return result.chartValue;
+  if (!result.denominator) return null;
+  if ([1, 4, 14].includes(result.no)) return result.numerator / result.denominator;
+  if (result.no === 16) return (result.numerator / result.denominator) * 1000;
+  return (result.numerator / result.denominator) * 100;
+}
+
+function kpiChartMax(kpiNo, value = 0) {
+  if ([1, 4, 14].includes(kpiNo)) return Math.max(60, Math.ceil(value / 30) * 30);
+  if (kpiNo === 16) return Math.max(10, Math.ceil(value / 5) * 5);
+  return 100;
+}
+
+function formatKpiChartValue(kpiNo, value) {
+  if ([1, 4, 14].includes(kpiNo)) return `${Math.round(value)}m`;
+  if (kpiNo === 16) return value.toFixed(1);
+  return `${Math.round(value)}%`;
+}
+
+function monthKey(date) {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
+}
+
+function defaultKpiFieldCount() {
+  return Object.keys(defaultKpiData()).length;
+}
+
+function kpiValue(item, key) {
+  const stored = item.kpi?.[key];
+  return stored !== "" && stored != null ? stored : derivedKpiData(item)[key] || "";
+}
+
+function derivedKpiData(item) {
+  const stages = item.stages || {};
+  return {
+    hospitalAdmissionTime: item.arrivalTime || "",
+    dysphagiaScreening: stages.dysphagiaScreening?.time ? "Yes" : "",
+    diagnosticImagingRequestTime: stages.ctInformed?.time || "",
+    diagnosticImagingStartTime: stages.ncctStarted?.time || "",
+    diagnosticImagingPerformed: stages.ncctStarted?.time ? "Yes" : "",
+    strokeUnitAdmissionTime: stages.strokeUnitAdmission?.time || "",
+    physiotherapyAssessmentTime: stages.physiotherapyAssessment?.time || "",
+    speechTherapyAssessmentTime: stages.speechTherapyAssessment?.time || "",
+    strokeUnitDischargeTime: stages.strokeUnitDischarge?.time || "",
+    dischargeTime: stages.hospitalDischarge?.time || "",
+    ivtGiven: stages.ivtStarted?.time ? "Yes" : "",
+    evtIndicated: stages.mtDecided?.time ? "Yes" : "",
+    evtPerformed: stages.groinPuncture?.time || stages.firstPass?.time || stages.recanalisation?.time ? "Yes" : "",
+    largeVesselOcclusion: item.suspicion === "LVO Suspected" ? "Yes" : ""
+  };
+}
+
+function countCases(cases, key) {
+  return cases.filter((item) => kpiValue(item, key) === "Yes").length;
+}
+
+function strokeReferenceTime(item) {
+  return kpiValue(item, "strokePresentationType") === "Inpatient stroke"
+    ? kpiValue(item, "strokeRecognitionTime")
+    : stageTime(item, "arrival");
+}
+
+function admissionReferenceTime(item) {
+  return kpiValue(item, "hospitalAdmissionTime") || item.arrivalTime;
+}
+
+function medicationErrorTotal(cases) {
+  return cases.reduce((total, item) => {
+    const count = num(kpiValue(item, "medicationErrorCount"));
+    if (count > 0) return total + count;
+    return total + (kpiValue(item, "medicationError") === "Yes" ? 1 : 0);
+  }, 0);
+}
+
+function pressureUlcerCount(cases) {
+  return cases.filter((item) => {
+    const stage = kpiValue(item, "pressureUlcerStage");
+    return kpiValue(item, "pressureUlcerNewWorsening") === "Yes" && stage && stage !== "No ulcer";
+  }).length;
+}
+
+function verifiedDeathWithin7Days(item) {
+  if (!["Yes", "No"].includes(kpiValue(item, "deathInHospital")) || !kpiValue(item, "deathTime")) return null;
+  if (kpiValue(item, "deathInHospital") !== "Yes") return false;
+  return withinIsoMinutes(admissionReferenceTime(item), kpiValue(item, "deathTime"), 7 * 24 * 60);
+}
+
+function verifiedWithinWindow(item, startKey, endKey, limitMinutes) {
+  if (!kpiValue(item, startKey) || !kpiValue(item, endKey)) return null;
+  return withinIsoMinutes(kpiValue(item, startKey), kpiValue(item, endKey), limitMinutes);
+}
+
+function validatedSich(item, suffix, treatmentTime) {
+  const eventTime = kpiValue(item, `sichAfter${suffix}Time`);
+  const nihssAnswer = kpiValue(item, `sichAfter${suffix}NihssIncrease`);
+  const imagingAnswer = kpiValue(item, `sichAfter${suffix}ImagingConfirmed`);
+  if (!treatmentTime || !eventTime || !["Yes", "No"].includes(nihssAnswer) || !["Yes", "No"].includes(imagingAnswer)) return null;
+  return nihssAnswer === "Yes" &&
+    imagingAnswer === "Yes" &&
+    withinIsoMinutes(treatmentTime, eventTime, 24 * 60);
+}
+
+function num(value) {
+  const parsed = Number(value || 0);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function stageTime(item, id) {
+  return item.stages?.[id]?.time || "";
+}
+
+function minutesBetween(start, end) {
+  if (!start || !end) return null;
+  const minutes = Math.round((new Date(end) - new Date(start)) / 60000);
+  return Number.isFinite(minutes) && minutes >= 0 ? minutes : null;
+}
+
+function withinIsoMinutes(start, end, limit) {
+  const minutes = minutesBetween(start, end);
+  return minutes != null && minutes <= limit;
+}
+
+function withinMinutes(item, startStage, endStage, limit) {
+  return withinIsoMinutes(stageTime(item, startStage), stageTime(item, endStage), limit);
+}
+
+function rankinGood(value) {
+  return value !== "" && Number(value) <= 2;
+}
+
+function ticiGood(item) {
+  return ["2B", "2C", "3"].includes(item.mt?.tici || "");
+}
+
+function evtWithinTarget(item) {
+  const arrivalType = kpiValue(item, "evtArrivalType");
+  const limit = arrivalType === "Transfer" ? 60 : 90;
+  return (kpiValue(item, "evtPerformed") === "Yes" || Boolean(stageTime(item, "firstPass"))) && withinMinutes(item, "arrival", "firstPass", limit);
+}
+
+function patientStrokeUnitDays(item) {
+  const start = kpiValue(item, "strokeUnitAdmissionTime");
+  const end = kpiValue(item, "strokeUnitDischargeTime");
+  if (!start || !end) return 0;
+  const milliseconds = new Date(end) - new Date(start);
+  if (!Number.isFinite(milliseconds) || milliseconds < 0) return 0;
+  return Math.max(1, Math.ceil(milliseconds / (24 * 60 * 60 * 1000)));
+}
+
+function patientFallCount(item) {
+  if (kpiValue(item, "patientFall") !== "Yes") return 0;
+  return Math.max(1, num(kpiValue(item, "patientFallCount")));
+}
+
+function diagnosticWaitingMinutes(item) {
+  const start = kpiValue(item, "diagnosticImagingPresentationTime");
+  const end = kpiValue(item, "diagnosticImagingStartTime") || stageTime(item, "ncctStarted");
+  return minutesBetween(start, end);
 }
 
 function casesScreen() {
@@ -1110,9 +1924,31 @@ function withTimeout(promise, ms) {
 function recordStage(caseId, stageId, mode, manualTime, reason = "") {
   const item = state.cases.find((entry) => entry.id === caseId);
   if (!item || item.caseStopped || item.signedOffAt) return;
-  item.stages[stageId] = { time: manualTime || new Date().toISOString(), mode, reason };
+  const time = manualTime || new Date().toISOString();
+  item.stages[stageId] = { time, mode, reason };
+  syncStageToKpi(item, stageId, time);
   saveCases();
   render();
+}
+
+function syncStageToKpi(item, stageId, time) {
+  const timestampMap = {
+    ctInformed: "diagnosticImagingRequestTime",
+    ncctStarted: "diagnosticImagingStartTime",
+    strokeUnitAdmission: "strokeUnitAdmissionTime",
+    physiotherapyAssessment: "physiotherapyAssessmentTime",
+    speechTherapyAssessment: "speechTherapyAssessmentTime",
+    strokeUnitDischarge: "strokeUnitDischargeTime",
+    hospitalDischarge: "dischargeTime"
+  };
+  const timestampKey = timestampMap[stageId];
+  item.kpi = { ...defaultKpiData(), ...(item.kpi || {}) };
+  if (timestampKey) item.kpi[timestampKey] = time;
+  if (stageId === "dysphagiaScreening") item.kpi.dysphagiaScreening = "Yes";
+  if (stageId === "ncctStarted") item.kpi.diagnosticImagingPerformed = "Yes";
+  if (stageId === "ivtStarted") item.kpi.ivtGiven = "Yes";
+  if (stageId === "mtDecided") item.kpi.evtIndicated = "Yes";
+  if (["groinPuncture", "firstPass", "recanalisation"].includes(stageId)) item.kpi.evtPerformed = "Yes";
 }
 
 function openManual(caseId, stageId, labelText) {
@@ -1216,6 +2052,76 @@ function stopModal() {
       ])
     ])
   ]);
+}
+
+function openKpi(caseId) {
+  state.kpiTarget = { caseId };
+  render();
+}
+
+function kpiModal() {
+  if (!state.kpiTarget) return null;
+  const item = state.cases.find((entry) => entry.id === state.kpiTarget.caseId);
+  if (!item) {
+    state.kpiTarget = null;
+    return null;
+  }
+  const kpi = ensureKpiData(item);
+  const progress = kpiCompletion(item);
+  return h("div", { class: "modal-backdrop kpi-backdrop" }, [
+    h("form", {
+      class: "modal kpi-modal",
+      onsubmit: (event) => {
+        event.preventDefault();
+        const form = new FormData(event.currentTarget);
+        item.kpi = { ...defaultKpiData(), ...(item.kpi || {}) };
+        kpiTimestampFields.forEach(([key]) => {
+          const value = form.get(key);
+          item.kpi[key] = value ? new Date(value).toISOString() : "";
+        });
+        [...kpiYesNoFields.filter(([key]) => !workflowKpiKeys.has(key)), ...kpiScoreFields, ...kpiNumberFields].forEach(([key]) => {
+          item.kpi[key] = form.get(key) || "";
+        });
+        item.kpiUpdatedAt = new Date().toISOString();
+        saveCases();
+        state.kpiTarget = null;
+        render();
+      }
+    }, [
+      h("div", { class: "kpi-modal-head" }, [
+        h("div", {}, [
+          h("h3", {}, "KPI Data"),
+          h("p", { class: "modal-help" }, `${item.id} | ${item.patientName}`)
+        ]),
+        h("span", { class: "tag grey" }, `${progress.completed}/${progress.total}`)
+      ]),
+      h("div", { class: "kpi-scroll" }, [
+        kpiSection("Timestamp Fields", kpiTimestampFields.map(([key, label]) => field(label, h("input", { type: "datetime-local", name: key, value: kpiLocalValue(kpi[key]) })))),
+        kpiSection("Treatment and Outcome Fields", kpiYesNoFields
+          .filter(([key]) => !workflowKpiKeys.has(key))
+          .map(([key, label]) => field(label, choiceButtons(key, kpiAnswerOptions, kpi[key] || "")))),
+        kpiSection("Event Counts", kpiNumberFields.map(([key, label, minimum]) => field(label, h("input", { type: "number", name: key, min: minimum, value: kpi[key] || "0" })))),
+        kpiSection("Score Fields", kpiScoreFields.map(([key, label, options]) => field(label, select(key, options, kpi[key]))))
+      ]),
+      h("div", { class: "modal-actions" }, [
+        h("button", { type: "button", class: "secondary-btn", onclick: () => { state.kpiTarget = null; render(); } }, "CANCEL"),
+        h("button", { class: "record-btn", type: "submit" }, "SAVE KPI")
+      ])
+    ])
+  ]);
+}
+
+function kpiSection(label, children) {
+  return h("section", { class: "kpi-section" }, [
+    h("div", { class: "section-heading compact-heading" }, [h("h2", {}, label)]),
+    ...children
+  ]);
+}
+
+function kpiLocalValue(value) {
+  if (!value) return "";
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? "" : toLocalInput(date);
 }
 
 function field(label, input) {
@@ -1331,13 +2237,64 @@ function empty(text) {
 function caseRow(item) {
   const status = caseStatus(item);
   const elapsed = formatDuration(caseEndTime(item).getTime() - new Date(item.arrivalTime).getTime());
-  return h("button", { class: "case-row", onclick: () => go("timeline", item.id) }, [
+  const kpiProgress = kpiCompletion(item);
+  return h("div", {
+    class: "case-row",
+    role: "button",
+    tabindex: "0",
+    onclick: () => go("timeline", item.id),
+    onkeydown: (event) => {
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        go("timeline", item.id);
+      }
+    }
+  }, [
     h("div", { class: "case-main" }, [
       h("strong", {}, `${item.id} - ${item.patientName}`),
       h("span", {}, `${elapsed} | ${item.suspicion}`)
     ]),
-    h("span", { class: `tag ${status.className}` }, status.label)
+    h("div", { class: "case-row-actions" }, [
+      h("button", {
+        type: "button",
+        class: "kpi-btn",
+        onclick: (event) => {
+          event.stopPropagation();
+          openKpi(item.id);
+        }
+      }, `KPI ${kpiProgress.completed}/${kpiProgress.total}`),
+      h("span", { class: `tag ${status.className}` }, status.label)
+    ])
   ]);
+}
+
+function defaultKpiData() {
+  return [...kpiTimestampFields, ...kpiYesNoFields, ...kpiNumberFields, ...kpiScoreFields].reduce((data, [key]) => {
+    data[key] = "";
+    return data;
+  }, {});
+}
+
+function ensureKpiData(item) {
+  const existing = item.kpi || {};
+  const derived = derivedKpiData(item);
+  item.kpi = Object.keys(defaultKpiData()).reduce((data, key) => {
+    data[key] = existing[key] !== "" && existing[key] != null ? existing[key] : derived[key] || "";
+    return data;
+  }, {});
+  return item.kpi;
+}
+
+function kpiCompletion(item) {
+  const data = Object.keys(defaultKpiData()).reduce((values, key) => {
+    values[key] = kpiValue(item, key);
+    return values;
+  }, {});
+  const values = Object.values(data);
+  return {
+    completed: values.filter((value) => value !== "" && value != null).length,
+    total: values.length
+  };
 }
 
 function metricLine(item, def) {
@@ -1357,8 +2314,9 @@ function recentTable() {
   if (!state.cases.length) return empty("No cases recorded yet.");
   const rows = state.cases.slice(0, 8).map((item) => {
     const status = caseStatus(item);
+    const performance = performanceStatus(item);
     const noteCount = Object.values(item.stageNotes || {}).filter(Boolean).length + (item.caseComment ? 1 : 0) + (item.caseStoppedComment ? 1 : 0);
-    return h("tr", {}, [
+    return h("tr", { class: `performance-row ${performance.className ? `performance-${performance.className}` : "performance-on-track"}` }, [
       h("td", {}, item.id),
       h("td", {}, item.patientName),
       h("td", {}, `${item.age || "--"}/${shortGender(item.gender)}`),
@@ -1403,10 +2361,11 @@ function dashboardNotes() {
   if (!rows.length) return empty("No notes or stopped cases yet.");
   return h("div", { class: "dashboard-notes" }, rows.map((item) => {
     const stageNotes = Object.entries(item.stageNotes || {}).filter(([, note]) => note);
+    const performance = performanceStatus(item);
     const preview = item.caseStopped
       ? `${item.caseStoppedReason || "Stopped"}${item.caseStoppedComment ? ` - ${item.caseStoppedComment}` : ""}`
       : item.caseComment || stageNotes[0]?.[1] || "";
-    return h("button", { class: "dashboard-note-row", onclick: () => go("summary", item.id) }, [
+    return h("button", { class: `dashboard-note-row ${performance.className ? `performance-${performance.className}` : "performance-on-track"}`, onclick: () => go("summary", item.id) }, [
       h("span", {}, item.id),
       h("strong", {}, item.patientName),
       h("p", {}, preview || "Notes added"),
@@ -1447,6 +2406,18 @@ function trendChart() {
 function updateNested(caseId, group, key, value) {
   const item = state.cases.find((entry) => entry.id === caseId);
   item[group][key] = value;
+  if (group === "ivt" && key === "eligible" && value === "No" && !stageTime(item, "ivtStarted")) {
+    item.kpi = { ...defaultKpiData(), ...(item.kpi || {}), ivtGiven: "No" };
+  }
+  saveCases();
+  render();
+}
+
+function updateKpiField(caseId, key, value) {
+  const item = state.cases.find((entry) => entry.id === caseId);
+  if (!item) return;
+  item.kpi = { ...defaultKpiData(), ...(item.kpi || {}), [key]: value };
+  item.kpiUpdatedAt = new Date().toISOString();
   saveCases();
   render();
 }
@@ -1498,6 +2469,10 @@ function metricStatus(minutes, target, critical) {
 function caseStatus(item) {
   if (item.caseStopped) return { label: "Stopped", className: "grey" };
   if (item.signedOffAt) return { label: "Signed Off", className: "" };
+  return performanceStatus(item);
+}
+
+function performanceStatus(item) {
   const values = metricDefs.slice(0, 6).map((def) => {
     const minutes = metricMinutes(item, def);
     return minutes == null ? null : metricStatus(minutes, def[4], def[5]).className;
@@ -1514,7 +2489,7 @@ function caseEndTime(item) {
 }
 
 function stageLabel(stageId) {
-  const allStages = [...erStages, ...ctStages, ["ivtConsent", "IVT Consent Taken"], ["ivtStarted", "IVT Started / Bolus Given"], ["evtConsent", "EVT Consent Taken"], ...mtStages];
+  const allStages = [...erStages, ...ctStages, ...mriStages, ...wardStages, ["ivtConsent", "IVT Consent Taken"], ["ivtStarted", "IVT Started / Bolus Given"], ["evtConsent", "EVT Consent Taken"], ...mtStages];
   return allStages.find(([id]) => id === stageId)?.[1] || stageId;
 }
 
@@ -1577,8 +2552,201 @@ function shortGender(value) {
 
 function exportCases() {
   const blob = new Blob([JSON.stringify(state.cases, null, 2)], { type: "application/json" });
+  downloadBlob(blob, "rajagiri-strokecode-cases.json");
+}
+
+function exportKpiCsv(report, range) {
+  const rows = [
+    ["KPI", "Indicator", "Result", "Numerator", "Denominator", "Status", "Details"],
+    ...report.map((item) => [
+      item.no,
+      item.title,
+      item.value,
+      item.numerator ?? "",
+      item.denominator ?? "",
+      item.provisional ? "Data Pending" : "Final",
+      item.meta
+    ])
+  ];
+  const csv = rows.map((row) => row.map(csvCell).join(",")).join("\n");
+  downloadBlob(new Blob([csv], { type: "text/csv;charset=utf-8" }), `nabh-kpi-${reportFileRange(range)}.csv`);
+}
+
+function exportKpiJson(report, cases, range) {
+  const payload = {
+    centre: accessSettings.centreName,
+    generatedAt: new Date().toISOString(),
+    period: { from: dateInputValue(range.start), to: dateInputValue(range.end) },
+    caseCount: cases.length,
+    indicators: report
+  };
+  downloadBlob(new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" }), `nabh-kpi-${reportFileRange(range)}.json`);
+}
+
+function exportKpiPng(report, cases, range) {
+  const canvas = document.createElement("canvas");
+  canvas.width = 1600;
+  canvas.height = 1680;
+  const ctx = canvas.getContext("2d");
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.fillStyle = "#b5121b";
+  ctx.fillRect(0, 0, canvas.width, 16);
+  ctx.fillStyle = "#162033";
+  ctx.font = "700 42px Arial";
+  ctx.fillText("NABH Stroke KPI Report", 70, 80);
+  ctx.font = "24px Arial";
+  ctx.fillStyle = "#6d7688";
+  ctx.fillText(accessSettings.centreName, 70, 120);
+  ctx.fillText(`${formatReportDate(range.start)} to ${formatReportDate(range.end)} | ${cases.length} cases`, 70, 158);
+  report.forEach((item, index) => {
+    const column = index < 12 ? 0 : 1;
+    const row = index % 12;
+    const x = 70 + column * 760;
+    const y = 210 + row * 118;
+    ctx.fillStyle = "#f6f7fb";
+    ctx.fillRect(x, y, 700, 96);
+    ctx.fillStyle = "#b5121b";
+    ctx.font = "700 20px Arial";
+    ctx.fillText(`KPI ${item.no}`, x + 18, y + 28);
+    ctx.fillStyle = "#162033";
+    ctx.font = "700 18px Arial";
+    drawCanvasText(ctx, item.title, x + 104, y + 26, 390, 21);
+    ctx.fillStyle = item.provisional ? "#f59e0b" : "#b5121b";
+    ctx.font = "700 24px Arial";
+    ctx.fillText(item.value, x + 530, y + 32);
+    const value = kpiResultNumeric(item);
+    const width = value == null ? 0 : Math.min(1, value / kpiChartMax(item.no, value)) * 660;
+    ctx.fillStyle = "#e8ebf2";
+    ctx.fillRect(x + 18, y + 66, 660, 10);
+    ctx.fillStyle = item.provisional ? "#f59e0b" : "#21a66b";
+    ctx.fillRect(x + 18, y + 66, width, 10);
+    ctx.fillStyle = "#6d7688";
+    ctx.font = "14px Arial";
+    ctx.fillText(item.meta, x + 18, y + 91);
+  });
+  canvas.toBlob((blob) => {
+    if (blob) downloadBlob(blob, `nabh-kpi-${reportFileRange(range)}.png`);
+  }, "image/png");
+}
+
+function exportAllKpiTrendsPng(report, range) {
+  const canvas = document.createElement("canvas");
+  canvas.width = 1800;
+  canvas.height = 2500;
+  const ctx = canvas.getContext("2d");
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.fillStyle = "#b5121b";
+  ctx.fillRect(0, 0, canvas.width, 16);
+  ctx.fillStyle = "#162033";
+  ctx.font = "700 42px Arial";
+  ctx.fillText("NABH Stroke KPI Monthly Trends", 70, 80);
+  ctx.font = "24px Arial";
+  ctx.fillStyle = "#6d7688";
+  ctx.fillText(accessSettings.centreName, 70, 120);
+  ctx.fillText(`${formatReportDate(range.start)} to ${formatReportDate(range.end)}`, 70, 158);
+  report.forEach((item, index) => {
+    const column = index % 2;
+    const row = Math.floor(index / 2);
+    const x = 60 + column * 870;
+    const y = 205 + row * 188;
+    const width = 820;
+    const height = 164;
+    const points = monthlyKpiTrend(range.start, range.end, item.no);
+    ctx.fillStyle = "#f6f7fb";
+    ctx.fillRect(x, y, width, height);
+    ctx.fillStyle = "#b5121b";
+    ctx.font = "700 18px Arial";
+    ctx.fillText(`KPI ${item.no}`, x + 18, y + 28);
+    ctx.fillStyle = "#162033";
+    ctx.font = "700 16px Arial";
+    drawCanvasText(ctx, item.title, x + 92, y + 27, 520, 19);
+    ctx.fillStyle = item.provisional ? "#f59e0b" : "#b5121b";
+    ctx.font = "700 21px Arial";
+    ctx.fillText(item.value, x + 670, y + 30);
+    drawTrendCanvas(ctx, points, item.no, x + 18, y + 70, width - 36, 70);
+  });
+  canvas.toBlob((blob) => {
+    if (blob) downloadBlob(blob, `nabh-kpi-trends-${reportFileRange(range)}.png`);
+  }, "image/png");
+}
+
+function drawTrendCanvas(ctx, points, kpiNo, x, y, width, height) {
+  ctx.strokeStyle = "#dfe3eb";
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(x, y + height);
+  ctx.lineTo(x + width, y + height);
+  ctx.stroke();
+  if (!points.length) return;
+  const step = points.length > 1 ? width / (points.length - 1) : 0;
+  const availableValues = points.map((point) => point.value).filter((value) => value != null);
+  const max = kpiChartMax(kpiNo, Math.max(0, ...availableValues));
+  ctx.strokeStyle = "#21a66b";
+  ctx.lineWidth = 4;
+  ctx.beginPath();
+  let drawing = false;
+  points.forEach((point, index) => {
+    if (point.value == null) {
+      drawing = false;
+      return;
+    }
+    const pointX = points.length === 1 ? x + width / 2 : x + index * step;
+    const pointY = y + height - Math.min(1, point.value / max) * height;
+    if (!drawing) {
+      ctx.moveTo(pointX, pointY);
+      drawing = true;
+    } else {
+      ctx.lineTo(pointX, pointY);
+    }
+  });
+  ctx.stroke();
+  points.forEach((point, index) => {
+    if (point.value == null) return;
+    const pointX = points.length === 1 ? x + width / 2 : x + index * step;
+    const pointY = y + height - Math.min(1, point.value / max) * height;
+    ctx.fillStyle = point.provisional ? "#f59e0b" : "#21a66b";
+    ctx.beginPath();
+    ctx.arc(pointX, pointY, 6, 0, Math.PI * 2);
+    ctx.fill();
+  });
+  ctx.fillStyle = "#6d7688";
+  ctx.font = "12px Arial";
+  points.forEach((point, index) => {
+    const pointX = points.length === 1 ? x + width / 2 : x + index * step;
+    ctx.fillText(point.label, pointX - 18, y + height + 17);
+  });
+}
+
+function drawCanvasText(ctx, text, x, y, maxWidth, lineHeight) {
+  const words = text.split(" ");
+  let line = "";
+  let lineY = y;
+  words.forEach((word) => {
+    const test = `${line}${word} `;
+    if (ctx.measureText(test).width > maxWidth && line) {
+      ctx.fillText(line.trim(), x, lineY);
+      line = `${word} `;
+      lineY += lineHeight;
+    } else {
+      line = test;
+    }
+  });
+  ctx.fillText(line.trim(), x, lineY);
+}
+
+function csvCell(value) {
+  return `"${String(value ?? "").replaceAll("\"", "\"\"")}"`;
+}
+
+function reportFileRange(range) {
+  return `${dateInputValue(range.start)}-to-${dateInputValue(range.end)}`;
+}
+
+function downloadBlob(blob, filename) {
   const url = URL.createObjectURL(blob);
-  const link = h("a", { href: url, download: "rajagiri-strokecode-cases.json" });
+  const link = h("a", { href: url, download: filename });
   document.body.appendChild(link);
   link.click();
   link.remove();
