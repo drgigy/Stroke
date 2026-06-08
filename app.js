@@ -573,23 +573,23 @@ function homeScreen() {
   const today = todaysCases();
   const recent = [...state.cases].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)).slice(0, 5);
   return h("section", {}, [
-    h("button", { class: "primary-cta", onclick: () => go("create") }, "START NEW STROKE CASE"),
+    h("button", { class: "primary-cta", onclick: () => go("create") }, "START NEW CODE 7 CASE"),
     heading("Today's Summary Cards"),
     h("div", { class: "grid summary-grid" }, [
-      metricCard("Total stroke cases today", today.length || "0"),
+      metricCard("Total Code 7 cases today", today.length || "0"),
       metricCard("Median Door -> CT", medianMetric(today, "doorCt")),
       metricCard("Median Door -> Groin Puncture", medianMetric(today, "doorGroin")),
       metricCard("Median Door -> Recanalisation", medianMetric(today, "doorRecan"))
     ]),
     heading("Recent Cases"),
-    recent.length ? h("div", { class: "case-list" }, recent.map(caseRow)) : empty("No stroke cases recorded yet.")
+    recent.length ? h("div", { class: "case-list" }, recent.map(caseRow)) : empty("No Code 7 cases recorded yet.")
   ]);
 }
 
 function createScreen() {
   const now = toLocalInput(new Date());
   return h("section", {}, [
-    title("Create Stroke Case", ""),
+    title("Create Code 7 Case", ""),
     h("form", {
       class: "form-card",
       novalidate: true,
@@ -635,6 +635,7 @@ function createScreen() {
           caseStoppedComment: "",
           centreName: accessSettings.centreName,
           observerName: "",
+          includeInCodeStrokeKpi: "",
           signedOffAt: "",
           signoffAttempted: false
         };
@@ -946,6 +947,7 @@ function signoffPanel(item, missing) {
       const form = new FormData(event.currentTarget);
       item.observerName = form.get("observerName").trim();
       item.caseComment = form.get("caseComment").trim();
+      item.includeInCodeStrokeKpi = item.includeInCodeStrokeKpi || "";
       item.signoffAttempted = true;
       const currentMissing = signoffMissingItems(item);
       if (!currentMissing.length && !item.signedOffAt) item.signedOffAt = new Date().toISOString();
@@ -956,6 +958,11 @@ function signoffPanel(item, missing) {
     h("div", { class: "section-heading compact-heading" }, [h("h2", {}, "Final Sign-off")]),
     field("Data entered by", h("input", { name: "observerName", placeholder: "Name of observer / intern / coordinator", value: item.observerName || "" })),
     field("Overall case comments", h("textarea", { name: "caseComment", placeholder: "Add final comments about delays, clinical decision, consent, transfer, or pathway issues" }, item.caseComment || "")),
+    optionField("Include in Code Stroke KPI?", "includeInCodeStrokeKpi", item.includeInCodeStrokeKpi || "", ["Yes", "No"], (value) => {
+      item.includeInCodeStrokeKpi = value;
+      saveCases();
+      render();
+    }),
     missing.length
       ? h("div", { class: `missing-panel ${item.signoffAttempted ? "show" : ""}` }, [
           h("strong", {}, "Mandatory items pending"),
@@ -971,6 +978,10 @@ function signoffPanel(item, missing) {
 }
 
 function handlePendingClick(caseId, entry) {
+  if (entry.type === "kpiInclude") {
+    document.querySelector(".signoff-card")?.scrollIntoView({ behavior: "smooth", block: "center" });
+    return;
+  }
   if (entry.type === "observer") {
     const input = document.querySelector("[name='observerName']");
     if (input) input.focus();
@@ -1014,7 +1025,8 @@ function dashboardScreen() {
 
 function kpiScreen() {
   const range = selectedKpiRange();
-  const cases = casesForRange(range.start, range.end);
+  const allCases = casesForRange(range.start, range.end);
+  const cases = kpiIncludedCases(allCases);
   const admin = kpiAdminForRange(range.start, range.end);
   const report = buildNabhKpiReport(cases, admin);
   const selected = report.find((item) => item.no === state.selectedKpiNo) || report[0];
@@ -1030,7 +1042,8 @@ function kpiScreen() {
       kpiViewButton("reports", "Reports")
     ]),
     h("div", { class: "kpi-toolbar" }, [
-      metricCard("Cases in period", cases.length || "0"),
+      metricCard("Code Stroke KPI cases", cases.length || "0"),
+      metricCard("Excluded from KPI", allCases.length - cases.length),
       metricCard("Completed KPI fields", `${cases.reduce((sum, item) => sum + kpiCompletion(item).completed, 0)}/${cases.length * defaultKpiFieldCount()}`),
       metricCard("Final KPI results", report.filter((item) => !item.provisional && item.denominator > 0).length)
     ]),
@@ -1470,6 +1483,14 @@ function applyKpiPreset(preset) {
     state.kpiRangeEnd = dateInputValue(now);
   }
   render();
+}
+
+function isCodeStrokeKpiIncluded(item) {
+  return item.includeInCodeStrokeKpi === "Yes";
+}
+
+function kpiIncludedCases(cases) {
+  return cases.filter(isCodeStrokeKpiIncluded);
 }
 
 function casesForRange(start, end) {
@@ -2238,6 +2259,7 @@ function caseRow(item) {
   const status = caseStatus(item);
   const elapsed = formatDuration(caseEndTime(item).getTime() - new Date(item.arrivalTime).getTime());
   const kpiProgress = kpiCompletion(item);
+  const showKpiButton = isCodeStrokeKpiIncluded(item);
   return h("div", {
     class: "case-row",
     role: "button",
@@ -2255,14 +2277,14 @@ function caseRow(item) {
       h("span", {}, `${elapsed} | ${item.suspicion}`)
     ]),
     h("div", { class: "case-row-actions" }, [
-      h("button", {
+      showKpiButton ? h("button", {
         type: "button",
         class: "kpi-btn",
         onclick: (event) => {
           event.stopPropagation();
           openKpi(item.id);
         }
-      }, `KPI ${kpiProgress.completed}/${kpiProgress.total}`),
+      }, `KPI ${kpiProgress.completed}/${kpiProgress.total}`) : null,
       h("span", { class: `tag ${status.className}` }, status.label)
     ])
   ]);
@@ -2425,6 +2447,7 @@ function updateKpiField(caseId, key, value) {
 function signoffMissingItems(item) {
   const missing = [];
   if (!item.observerName?.trim()) missing.push({ label: "Data entered by", type: "observer" });
+  if (!["Yes", "No"].includes(item.includeInCodeStrokeKpi || "")) missing.push({ label: "Include in Code Stroke KPI?", type: "kpiInclude" });
   if (!item.patientName || item.patientName === "Unnamed Patient") missing.push({ label: "Patient Name", type: "details" });
   if (!item.suspicion) missing.push({ label: "Stroke Suspicion", type: "details" });
   signoffStageRequirements.forEach(([id, label, section]) => {
