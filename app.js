@@ -2436,6 +2436,7 @@ function recentTable() {
     const noteCount = Object.values(item.stageNotes || {}).filter(Boolean).length + (item.caseComment ? 1 : 0) + (item.caseStoppedComment ? 1 : 0);
     return h("tr", { class: `performance-row ${performance.className ? `performance-${performance.className}` : "performance-on-track"}` }, [
       h("td", {}, item.id),
+      h("td", {}, formatReportDate(new Date(item.arrivalTime))),
       h("td", {}, item.patientName),
       h("td", {}, `${item.age || "--"}/${shortGender(item.gender)}`),
       h("td", {}, formatClock(item.arrivalTime)),
@@ -2447,7 +2448,7 @@ function recentTable() {
     ]);
   });
   return h("div", { class: "table-wrap" }, h("table", {}, [
-    h("thead", {}, h("tr", {}, ["Case ID", "Patient Name", "Age/Gender", "Arrival Time", "Door -> CT", "Door -> Groin", "Door -> Recanalisation", "Notes", "Status"].map((text) => h("th", {}, text)))),
+    h("thead", {}, h("tr", {}, ["Case ID", "Date", "Patient Name", "Age/Gender", "Arrival Time", "Door -> CT", "Door -> Groin", "Door -> Recanalisation", "Notes", "Status"].map((text) => h("th", {}, text)))),
     h("tbody", {}, rows)
   ]));
 }
