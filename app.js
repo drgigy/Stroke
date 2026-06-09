@@ -620,6 +620,7 @@ function createScreen() {
             arrival: { time: arrival, mode: arrivalMode === "manual" ? "manual" : "auto", reason: arrivalMode === "manual" ? "Retrospective correction" : "" }
           },
           ivt: { eligible: "", consent: "", notGivenReason: "" },
+          mri: { needed: "" },
           mt: { evtConsent: "", tici: "" },
           kpi: {
             ...defaultKpiData(),
@@ -637,6 +638,7 @@ function createScreen() {
           observerName: "",
           includeInCodeStrokeKpi: "",
           signedOffAt: "",
+          signedOffUpdatedAt: "",
           signoffAttempted: false
         };
         state.cases.unshift(newCase);
@@ -688,7 +690,7 @@ function timelineScreen() {
     h("button", { class: "secondary-btn full-width-action", onclick: () => go("edit", item.id) }, "EDIT CASE DETAILS / NIHSS"),
     accordion("er", "SECTION 1 - ER PHASE", erStages, item),
     accordion("ct", "SECTION 2 - CT PHASE", ctStages, item),
-    accordion("mri", "SECTION 3 - MRI PHASE", mriStages, item),
+    mriAccordion(item),
     accordion("ward", "SECTION 4 - WARD / DISCHARGE", wardStages, item),
     h("div", { class: "section-card" }, [
       pathwayCard("IV THROMBOLYSIS", ivtStatus(item), () => go("ivt", item.id)),
@@ -708,12 +710,13 @@ function liveTracker(item, placement = "compact") {
     ["ncctStarted", "NCCT", "CT"],
     ["imagingReviewed", "Review", "CT"],
     ["ivtStarted", "IVT", "Rx"],
+    ["reachedCathlab", "Cathlab", "MT"],
     ["groinPuncture", "Groin", "MT"],
     ["recanalisation", "Recan", "MT"]
   ];
-  const completed = trackerSteps.filter(([id]) => item.stages[id]?.time).length;
+  const completed = trackerSteps.filter(([id]) => trackerStageResolved(item, id)).length;
   const percent = Math.round((completed / trackerSteps.length) * 100);
-  const nextStep = trackerSteps.find(([id]) => !item.stages[id]?.time);
+  const nextStep = trackerSteps.find(([id]) => !trackerStageResolved(item, id));
   const elapsed = formatDuration(caseEndTime(item).getTime() - new Date(item.arrivalTime).getTime());
   const status = caseStatus(item);
   return h("div", { class: `tracker-card ${placement === "dashboard" ? "dashboard-tracker" : ""} ${status.className ? `tracker-${status.className}` : ""}` }, [
@@ -730,19 +733,28 @@ function liveTracker(item, placement = "compact") {
     ]),
     h("div", { class: "tracker-progress" }, h("i", { style: `width:${percent}%` })),
     h("div", { class: "tracker-rail" }, trackerSteps.map(([id, label, group], index) => {
-      const done = Boolean(item.stages[id]?.time);
-      const current = !done && nextStep?.[0] === id;
+      const skipped = trackerStageSkipped(item, id);
+      const done = Boolean(item.stages[id]?.time) && !skipped;
+      const current = !done && !skipped && nextStep?.[0] === id;
       return h("button", {
         type: "button",
-        class: `tracker-step ${done ? "done" : ""} ${current ? "current" : ""}`,
+        class: `tracker-step ${done ? "done" : ""} ${skipped ? "skipped" : ""} ${current ? "current" : ""}`,
         onclick: () => jumpToTrackerStep(item.id, id)
       }, [
-        h("b", {}, done ? "OK" : String(index + 1)),
+        h("b", {}, done ? "OK" : skipped ? "N/A" : String(index + 1)),
         h("span", {}, label),
-        h("small", {}, done ? formatClock(item.stages[id].time) : group)
+        h("small", {}, done ? formatClock(item.stages[id].time) : skipped ? "Skipped" : group)
       ]);
     }))
   ]);
+}
+
+function trackerStageSkipped(item, stageId) {
+  return stageId === "ivtStarted" && isIvtSkipped(item);
+}
+
+function trackerStageResolved(item, stageId) {
+  return Boolean(item.stages[stageId]?.time) || trackerStageSkipped(item, stageId);
 }
 
 function liveCasesPanel() {
@@ -757,6 +769,14 @@ function liveCasesPanel() {
 }
 
 function jumpToTrackerStep(caseId, stageId) {
+  if (stageId === "ivtStarted") {
+    go("ivt", caseId);
+    return;
+  }
+  if (mtStages.some(([id]) => id === stageId)) {
+    go("mt", caseId);
+    return;
+  }
   if (erStages.some(([id]) => id === stageId)) state.openSections.er = true;
   if (ctStages.some(([id]) => id === stageId)) state.openSections.ct = true;
   if (mriStages.some(([id]) => id === stageId)) state.openSections.mri = true;
@@ -850,24 +870,65 @@ function accordion(key, label, stages, item) {
   ]);
 }
 
+function mriAccordion(item) {
+  const open = state.openSections.mri;
+  const needed = item.mri?.needed || "";
+  const skipped = needed === "No";
+  return h("div", { class: `section-card ${skipped ? "phase-skipped" : ""}` }, [
+    h("button", {
+      class: "accordion-head",
+      onclick: () => {
+        state.openSections.mri = !state.openSections.mri;
+        render();
+      }
+    }, [
+      h("strong", {}, "SECTION 3 - MRI PHASE"),
+      h("span", { class: `tag ${skipped ? "grey" : ""}` }, skipped ? "SKIPPED" : open ? "OPEN" : "CLOSED")
+    ]),
+    open ? h("div", { class: "accordion-body" }, [
+      optionField("MRI Needed", "mriNeeded", needed, ["Yes", "No"], (value) => updateNested(item.id, "mri", "needed", value)),
+      skipped
+        ? phaseSkippedPanel("MRI phase skipped", "MRI was marked as not needed for this case.")
+        : needed === "Yes"
+          ? h("div", { class: "phase-stage-list" }, mriStages.map(([id, labelText]) => stageRow(item, id, labelText)))
+          : h("div", { class: "phase-choice-prompt" }, "Select whether MRI is needed to continue this phase.")
+    ]) : null
+  ]);
+}
+
 function stageRow(item, id, labelText) {
   const stage = item.stages[id];
+  const notApplicable = Boolean(stage?.notApplicable);
+  const recorded = Boolean(stage?.time);
+  const supportsNotApplicable = ["ctaStarted", "ctaCompleted"].includes(id);
   const note = item.stageNotes?.[id] || "";
-  const closed = Boolean(item.caseStopped || item.signedOffAt);
+  const closed = Boolean(item.caseStopped);
   return h("div", { class: "stage" }, [
-    h("i", { class: `dot ${stage?.mode || ""}` }),
+    h("i", { class: `dot ${notApplicable ? "na" : stage?.mode || ""}` }),
     h("div", {}, [
       h("div", { class: "stage-copy" }, [
         h("strong", {}, labelText),
-        h("span", {}, stage ? `${formatClock(stage.time)}${stage.reason ? ` | ${stage.reason}` : ""}` : "Not yet recorded")
+        h("span", {}, notApplicable ? "Not applicable" : recorded ? `${formatClock(stage.time)}${stage.reason ? ` | ${stage.reason}` : ""}` : "Not yet recorded")
       ]),
-      h("div", { class: "stage-actions" }, [
-        h("button", { class: `record-btn ${stage ? "done" : ""}`, disabled: closed, onclick: () => recordStage(item.id, id, "auto") }, stage ? "RECORDED" : "RECORD NOW"),
+      h("div", { class: `stage-actions ${supportsNotApplicable ? "with-na" : ""}` }, [
+        h("button", { class: `record-btn ${recorded ? "done" : ""}`, disabled: closed, onclick: () => recordStage(item.id, id, "auto") }, recorded ? "RECORDED" : "RECORD NOW"),
         h("button", { class: "manual-btn", disabled: closed, onclick: () => openManual(item.id, id, labelText) }, "ENTER MANUAL TIME"),
-        h("button", { class: `note-btn ${note ? "has-note" : ""}`, onclick: () => openNote(item.id, id, labelText) }, note ? "VIEW NOTE" : "NOTES")
+        h("button", { class: `note-btn ${note ? "has-note" : ""}`, onclick: () => openNote(item.id, id, labelText) }, note ? "VIEW NOTE" : "NOTES"),
+        supportsNotApplicable ? h("button", {
+          class: `na-btn ${notApplicable ? "active" : ""}`,
+          disabled: closed,
+          onclick: () => toggleStageNotApplicable(item.id, id)
+        }, notApplicable ? "MARK APPLICABLE" : "NOT APPLICABLE") : null
       ]),
       note ? h("p", { class: "stage-note-preview" }, note) : null
     ])
+  ]);
+}
+
+function phaseSkippedPanel(titleText, detail) {
+  return h("div", { class: "phase-skipped-panel" }, [
+    h("strong", {}, titleText),
+    h("span", {}, detail)
   ]);
 }
 
@@ -881,13 +942,18 @@ function pathwayCard(titleText, status, onclick) {
 function ivtScreen() {
   const item = currentCase();
   if (!item) return homeScreen();
+  const skipped = isIvtSkipped(item);
   return h("section", {}, [
     title("IV Thrombolysis", `${item.id} | ${item.patientName}`),
     h("div", { class: "form-card" }, [
       optionField("IVT Eligible", "eligible", item.ivt.eligible, ["Yes", "No"], (value) => updateNested(item.id, "ivt", "eligible", value)),
       optionField("IV Thrombolysis Given", "ivtGiven", kpiValue(item, "ivtGiven"), ["Yes", "No"], (value) => updateKpiField(item.id, "ivtGiven", value)),
-      stageRow(item, "ivtConsent", "IVT Consent Taken"),
-      stageRow(item, "ivtStarted", "IVT Started / Bolus Given"),
+      skipped
+        ? phaseSkippedPanel("IV thrombolysis skipped / not applicable", "The patient was marked IVT ineligible and IV thrombolysis was not given.")
+        : h("div", { class: "phase-stage-list" }, [
+            stageRow(item, "ivtConsent", "IVT Consent Taken"),
+            stageRow(item, "ivtStarted", "IVT Started / Bolus Given")
+          ]),
       item.ivt.eligible === "No" ? field("If IVT not given", select("notGivenReason", ["Outside window", "Hemorrhage", "Anticoagulant", "Family refusal", "Clinical decision", "Other"], item.ivt.notGivenReason, (value) => updateNested(item.id, "ivt", "notGivenReason", value))) : null,
       h("button", { class: "secondary-btn", onclick: () => go("timeline", item.id) }, "BACK TO TIMELINE")
     ])
@@ -950,7 +1016,11 @@ function signoffPanel(item, missing) {
       item.includeInCodeStrokeKpi = item.includeInCodeStrokeKpi || "";
       item.signoffAttempted = true;
       const currentMissing = signoffMissingItems(item);
-      if (!currentMissing.length && !item.signedOffAt) item.signedOffAt = new Date().toISOString();
+      if (!currentMissing.length) {
+        const now = new Date().toISOString();
+        if (item.signedOffAt) item.signedOffUpdatedAt = now;
+        else item.signedOffAt = now;
+      }
       saveCases();
       render();
     }
@@ -959,6 +1029,9 @@ function signoffPanel(item, missing) {
     field("Data entered by", h("input", { name: "observerName", placeholder: "Name of observer / intern / coordinator", value: item.observerName || "" })),
     field("Overall case comments", h("textarea", { name: "caseComment", placeholder: "Add final comments about delays, clinical decision, consent, transfer, or pathway issues" }, item.caseComment || "")),
     optionField("Include in Code Stroke KPI?", "includeInCodeStrokeKpi", item.includeInCodeStrokeKpi || "", ["Yes", "No"], (value) => {
+      const form = document.querySelector(".signoff-card");
+      item.observerName = form?.querySelector("[name='observerName']")?.value.trim() || item.observerName || "";
+      item.caseComment = form?.querySelector("[name='caseComment']")?.value.trim() || item.caseComment || "";
       item.includeInCodeStrokeKpi = value;
       saveCases();
       render();
@@ -972,7 +1045,9 @@ function signoffPanel(item, missing) {
             onclick: () => handlePendingClick(item.id, entry)
           }, entry.label))
         ])
-      : h("div", { class: "complete-panel" }, item.signedOffAt ? `Signed off at ${formatClock(item.signedOffAt)}` : "All mandatory items completed"),
+      : h("div", { class: "complete-panel" }, item.signedOffAt
+        ? `Signed off at ${formatClock(item.signedOffAt)}${item.signedOffUpdatedAt ? ` | Last updated ${formatClock(item.signedOffUpdatedAt)}` : ""}`
+        : "All mandatory items completed"),
     h("button", { class: "primary-cta", type: "submit" }, item.signedOffAt ? "UPDATE SIGN-OFF" : "SIGN OFF CASE")
   ]);
 }
@@ -1944,10 +2019,31 @@ function withTimeout(promise, ms) {
 
 function recordStage(caseId, stageId, mode, manualTime, reason = "") {
   const item = state.cases.find((entry) => entry.id === caseId);
-  if (!item || item.caseStopped || item.signedOffAt) return;
+  if (!item || item.caseStopped) return;
   const time = manualTime || new Date().toISOString();
-  item.stages[stageId] = { time, mode, reason };
+  item.stages[stageId] = { time, mode, reason, notApplicable: false, previous: null };
   syncStageToKpi(item, stageId, time);
+  saveCases();
+  render();
+}
+
+function toggleStageNotApplicable(caseId, stageId) {
+  const item = state.cases.find((entry) => entry.id === caseId);
+  if (!item || item.caseStopped) return;
+  const current = item.stages[stageId];
+  if (current?.notApplicable) {
+    item.stages[stageId] = current.previous?.time
+      ? { ...current.previous, notApplicable: false, previous: null }
+      : { time: "", mode: "", reason: "", notApplicable: false, previous: null };
+  } else {
+    item.stages[stageId] = {
+      time: "",
+      notApplicable: true,
+      mode: "na",
+      reason: "Not applicable",
+      previous: current?.time ? current : null
+    };
+  }
   saveCases();
   render();
 }
@@ -2427,6 +2523,8 @@ function trendChart() {
 
 function updateNested(caseId, group, key, value) {
   const item = state.cases.find((entry) => entry.id === caseId);
+  if (!item) return;
+  item[group] = item[group] || {};
   item[group][key] = value;
   if (group === "ivt" && key === "eligible" && value === "No" && !stageTime(item, "ivtStarted")) {
     item.kpi = { ...defaultKpiData(), ...(item.kpi || {}), ivtGiven: "No" };
@@ -2457,6 +2555,7 @@ function signoffMissingItems(item) {
 }
 
 function metricMinutes(item, def) {
+  if (def?.[0] === "doorIvt" && isIvtSkipped(item)) return null;
   const start = item.stages[def[2]]?.time;
   const end = item.stages[def[3]]?.time;
   if (!start || !end) return null;
@@ -2541,9 +2640,14 @@ function nextCaseId() {
 }
 
 function ivtStatus(item) {
+  if (isIvtSkipped(item)) return "Skipped / Not applicable";
   if (item.stages.ivtStarted) return "Completed";
   if (item.ivt.eligible || item.stages.ivtConsent || item.ivt.consent) return "In Progress";
   return "Not Recorded";
+}
+
+function isIvtSkipped(item) {
+  return item.ivt?.eligible === "No" && kpiValue(item, "ivtGiven") === "No";
 }
 
 function mtStatus(item) {

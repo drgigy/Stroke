@@ -740,6 +740,16 @@ button {
   color: #fff;
 }
 
+.tracker-step.skipped {
+  border-color: #d9dde5;
+  background: #f3f5f8;
+}
+
+.tracker-step.skipped b {
+  background: #7b8495;
+  color: #fff;
+}
+
 .tracker-step.current {
   border-color: #f5a3a8;
   background: #fff1f2;
@@ -892,6 +902,10 @@ button {
   background: var(--orange);
 }
 
+.dot.na {
+  background: #7b8495;
+}
+
 .stage-actions {
   display: grid;
   grid-template-columns: 1fr 1fr 0.72fr;
@@ -902,6 +916,7 @@ button {
 .record-btn,
 .manual-btn,
 .note-btn,
+.na-btn,
 .danger-btn {
   min-height: 48px;
   border-radius: 10px;
@@ -923,6 +938,48 @@ button {
   background: #fff;
   color: var(--purple);
   border: 1px solid #f5c6cb;
+}
+
+.stage-actions.with-na {
+  grid-template-columns: 1fr 1fr 0.72fr 0.9fr;
+}
+
+.na-btn {
+  border: 1px solid #d9dde5;
+  background: #eef1f5;
+  color: #596273;
+}
+
+.na-btn.active {
+  border-color: #aeb5c1;
+  background: #dfe3e9;
+  color: var(--ink);
+}
+
+.phase-stage-list {
+  display: grid;
+  gap: 10px;
+}
+
+.phase-skipped-panel,
+.phase-choice-prompt {
+  display: grid;
+  gap: 4px;
+  padding: 14px;
+  border: 1px solid #d9dde5;
+  border-radius: 8px;
+  background: #f3f5f8;
+  color: #596273;
+}
+
+.phase-skipped-panel strong {
+  color: var(--ink);
+}
+
+.phase-skipped-panel span,
+.phase-choice-prompt {
+  font-size: 0.88rem;
+  line-height: 1.35;
 }
 
 .note-btn {
@@ -1897,7 +1954,7 @@ th {
   }
 
   .dashboard-tracker .tracker-rail {
-    grid-template-columns: repeat(10, minmax(0, 1fr));
+    grid-template-columns: repeat(11, minmax(0, 1fr));
   }
 
   .dashboard-tracker .tracker-step {
@@ -1954,6 +2011,10 @@ th {
   }
 
   .stage-actions {
+    grid-template-columns: 1fr;
+  }
+
+  .stage-actions.with-na {
     grid-template-columns: 1fr;
   }
 
