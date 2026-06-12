@@ -1157,23 +1157,7 @@ function handlePendingClick(caseId, entry) {
 }
 
 function dashboardScreen() {
-  const today = todaysCases();
-  const statusCounts = today.reduce((acc, item) => {
-    const status = performanceStatus(item).label;
-    acc[status] = (acc[status] || 0) + 1;
-    return acc;
-  }, {});
   return h("section", {}, [
-    title("Quality Dashboard", ""),
-    h("div", { class: "grid dashboard-grid" }, [
-      metricCard("Total Cases Today", today.length || "0"),
-      metricCard("On Track", statusCounts["On Track"] || "0"),
-      metricCard("Delayed", statusCounts.Delayed || "0"),
-      metricCard("Critical Delay", statusCounts.Critical || "0")
-    ]),
-    heading("Median Timings Today"),
-    h("div", { class: "grid dashboard-grid" }, metricDefs.slice(0, 6).map((def) => metricCard(def[1], medianMetric(today, def[0])))),
-    heading("Recent Cases Table"),
     dashboardRangePanel("cases"),
     recentTable(dashboardFilteredCases("cases")),
     heading("Case Notes / Stop Reasons"),
