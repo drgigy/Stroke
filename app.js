@@ -222,6 +222,16 @@ let state = {
   kpiRangePreset: "month",
   kpiRangeStart: dateInputValue(startOfMonth(new Date())),
   kpiRangeEnd: dateInputValue(new Date()),
+  casesRangeMode: "month",
+  casesMonth: monthKey(new Date()),
+  casesRangeStart: dateInputValue(startOfMonth(new Date())),
+  casesRangeEnd: dateInputValue(new Date()),
+  dashboardCasesRangeMode: "month",
+  dashboardCasesRangeStart: dateInputValue(startOfMonth(new Date())),
+  dashboardCasesRangeEnd: dateInputValue(new Date()),
+  dashboardNotesRangeMode: "month",
+  dashboardNotesRangeStart: dateInputValue(startOfMonth(new Date())),
+  dashboardNotesRangeEnd: dateInputValue(new Date()),
   selectedKpiNo: 1,
   tick: Date.now()
 };
@@ -570,19 +580,9 @@ function currentCase() {
 }
 
 function homeScreen() {
-  const today = todaysCases();
-  const recent = [...state.cases].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)).slice(0, 5);
   return h("section", {}, [
     h("button", { class: "primary-cta", onclick: () => go("create") }, "START NEW CODE 7 CASE"),
-    heading("Today's Summary Cards"),
-    h("div", { class: "grid summary-grid" }, [
-      metricCard("Total Code 7 cases today", today.length || "0"),
-      metricCard("Median Door -> CT", medianMetric(today, "doorCt")),
-      metricCard("Median Door -> Groin Puncture", medianMetric(today, "doorGroin")),
-      metricCard("Median Door -> Recanalisation", medianMetric(today, "doorRecan"))
-    ]),
-    heading("Recent Cases"),
-    recent.length ? h("div", { class: "case-list" }, recent.map(caseRow)) : empty("No Code 7 cases recorded yet.")
+    liveCasesPanel()
   ]);
 }
 
@@ -705,9 +705,9 @@ function liveTracker(item, placement = "compact") {
     ["arrival", "Door", "ER"],
     ["codeStroke", "Code", "ER"],
     ["neuroInformed", "Neuro", "ER"],
-    ["shiftToCt", "To CT", "ER"],
-    ["reachedCt", "CT", "CT"],
-    ["ncctStarted", "NCCT", "CT"],
+    ["shiftToCt", "To CT/MRI", "ER"],
+    ["reachedCt", "CT/MRI", "CT"],
+    ["ncctStarted", "NCCT/MRI", "CT"],
     ["imagingReviewed", "Review", "CT"],
     ["ivtStarted", "IVT", "Rx"],
     ["reachedCathlab", "Cathlab", "MT"],
@@ -722,8 +722,7 @@ function liveTracker(item, placement = "compact") {
   return h("div", { class: `tracker-card ${placement === "dashboard" ? "dashboard-tracker" : ""} ${status.className ? `tracker-${status.className}` : ""}` }, [
     h("div", { class: "tracker-head" }, [
       h("div", {}, [
-        h("span", {}, "LIVE STROKE TRACKER"),
-        h("strong", {}, `${item.id} | ${item.patientName}`),
+        h("strong", {}, item.patientName),
         h("small", {}, item.caseStopped ? `Stopped: ${item.caseStoppedReason || "Reason pending"}` : item.signedOffAt ? "Case signed off" : nextStep ? `Next: ${nextStep[1]}` : "Pathway complete")
       ]),
       h("div", { class: "tracker-score" }, [
@@ -764,7 +763,92 @@ function liveCasesPanel() {
       h("h2", {}, "Live Stroke Cases"),
       h("span", { class: "tag grey" }, `${items.length} active`)
     ]),
-    items.length ? h("div", { class: "live-case-list" }, items.map((item) => liveTracker(item, "dashboard"))) : empty("No active live stroke cases.")
+    items.length ? h("div", { class: "live-case-list" }, items.map(liveCaseBlock)) : empty("No active live stroke cases.")
+  ]);
+}
+
+function liveCaseBlock(item) {
+  return h("article", { class: "live-case-block" }, [
+    liveTracker(item, "dashboard"),
+    liveCaseDetails(item)
+  ]);
+}
+
+function liveCaseDetails(item) {
+  const recordedCount = Object.values(item.stages || {}).filter((stage) => stage?.time).length;
+  const stageGroups = [
+    ["ER Phase", erStages],
+    ["CT Phase", ctStages],
+    ["MRI Phase", mriStages],
+    ["Ward / Discharge", wardStages],
+    ["IV Thrombolysis", [["ivtConsent", "IVT Consent Taken"], ["ivtStarted", "IVT Started / Bolus Given"]]],
+    ["Mechanical Thrombectomy", [["evtConsent", "EVT Consent Taken"], ...mtStages]]
+  ];
+  return h("details", { class: "live-case-details", open: true }, [
+    h("summary", {}, [
+      h("strong", {}, "Active Case Details"),
+      h("span", {}, `${recordedCount} timing${recordedCount === 1 ? "" : "s"} recorded`)
+    ]),
+    h("div", { class: "live-detail-body" }, [
+      h("div", { class: "live-patient-grid" }, [
+        liveDetailValue("Patient", item.patientName),
+        liveDetailValue("Age / Gender", `${item.age || "--"} / ${shortGender(item.gender)}`),
+        liveDetailValue("Arrival", formatCaseDateTime(item.arrivalTime)),
+        liveDetailValue("Suspicion", item.suspicion || "Unknown"),
+        liveDetailValue("NIHSS", item.nihss || "Not recorded"),
+        liveDetailValue("Side / Territory", `${item.side || "Unknown"} / ${item.territory || "Unknown"}`),
+        liveDetailValue("IVT", ivtStatus(item)),
+        liveDetailValue("Thrombectomy", mtStatus(item))
+      ]),
+      h("div", { class: "live-metric-grid" }, metricDefs.map((def) => {
+        const minutes = metricMinutes(item, def);
+        return liveDetailValue(def[1], minutes == null ? "Pending" : `${minutes} min`);
+      })),
+      h("div", { class: "live-phase-grid" }, stageGroups.map(([label, stages]) => liveStageGroup(item, label, stages))),
+      liveCaseNotes(item),
+      h("button", { class: "secondary-btn live-open-timeline", onclick: () => go("timeline", item.id) }, "OPEN FULL TIMELINE")
+    ])
+  ]);
+}
+
+function liveDetailValue(label, value) {
+  return h("div", { class: "live-detail-value" }, [
+    h("span", {}, label),
+    h("strong", {}, String(value || "--"))
+  ]);
+}
+
+function liveStageGroup(item, label, stages) {
+  return h("section", { class: "live-phase-group" }, [
+    h("h3", {}, label),
+    ...stages.map(([id, stageName]) => {
+      const stage = item.stages?.[id];
+      const note = item.stageNotes?.[id] || "";
+      const value = stage?.notApplicable ? "Not applicable" : stage?.time ? formatClock(stage.time) : "Pending";
+      return h("div", { class: `live-stage-line ${stage?.time ? "recorded" : ""} ${stage?.notApplicable ? "not-applicable" : ""}` }, [
+        h("span", {}, stageName),
+        h("strong", {}, value),
+        note ? h("small", {}, note) : null
+      ]);
+    })
+  ]);
+}
+
+function liveCaseNotes(item) {
+  const notes = Object.entries(item.stageNotes || {}).filter(([, note]) => note);
+  if (!notes.length && !item.caseComment) {
+    return h("div", { class: "live-notes-panel empty-notes" }, "No notes or overall case comments entered.");
+  }
+  return h("div", { class: "live-notes-panel" }, [
+    h("h3", {}, "Notes and Comments"),
+    ...notes.map(([stageId, note]) => h("div", {}, [
+      h("strong", {}, stageLabel(stageId)),
+      h("p", {}, note)
+    ])),
+    item.caseComment ? h("div", {}, [
+      h("strong", {}, "Overall Case Comments"),
+      h("p", {}, item.caseComment)
+    ]) : null
   ]);
 }
 
@@ -1080,8 +1164,7 @@ function dashboardScreen() {
     return acc;
   }, {});
   return h("section", {}, [
-    title("Quality Dashboard", "Responsive command-center view for 10-day observation."),
-    liveCasesPanel(),
+    title("Quality Dashboard", ""),
     h("div", { class: "grid dashboard-grid" }, [
       metricCard("Total Cases Today", today.length || "0"),
       metricCard("On Track", statusCounts["On Track"] || "0"),
@@ -1091,11 +1174,80 @@ function dashboardScreen() {
     heading("Median Timings Today"),
     h("div", { class: "grid dashboard-grid" }, metricDefs.slice(0, 6).map((def) => metricCard(def[1], medianMetric(today, def[0])))),
     heading("Recent Cases Table"),
-    recentTable(),
+    dashboardRangePanel("cases"),
+    recentTable(dashboardFilteredCases("cases")),
     heading("Case Notes / Stop Reasons"),
-    dashboardNotes(),
-    h("div", { class: "desktop-two", style: "margin-top:14px" }, [delayChart(), trendChart()])
+    dashboardRangePanel("notes"),
+    dashboardNotes(dashboardFilteredCases("notes"))
   ]);
+}
+
+function dashboardRangePanel(section) {
+  const modeKey = section === "cases" ? "dashboardCasesRangeMode" : "dashboardNotesRangeMode";
+  const startKey = section === "cases" ? "dashboardCasesRangeStart" : "dashboardNotesRangeStart";
+  const endKey = section === "cases" ? "dashboardCasesRangeEnd" : "dashboardNotesRangeEnd";
+  return h("div", { class: "cases-filter-panel dashboard-filter-panel" }, [
+    h("div", { class: "cases-filter-modes" }, [
+      dashboardRangeButton(modeKey, "month", "This Month"),
+      dashboardRangeButton(modeKey, "custom", "Custom Range"),
+      dashboardRangeButton(modeKey, "all", "All")
+    ]),
+    state[modeKey] === "custom"
+      ? h("div", { class: "cases-date-range" }, [
+          field("From", h("input", {
+            type: "date",
+            value: state[startKey],
+            onchange: (event) => {
+              state[startKey] = event.target.value;
+              render();
+            }
+          })),
+          field("To", h("input", {
+            type: "date",
+            value: state[endKey],
+            onchange: (event) => {
+              state[endKey] = event.target.value;
+              render();
+            }
+          }))
+        ])
+      : h("div", { class: "cases-filter-summary" }, state[modeKey] === "month" ? formatMonthLabel(new Date()) : "Showing all recorded cases")
+  ]);
+}
+
+function dashboardRangeButton(modeKey, mode, label) {
+  return h("button", {
+    type: "button",
+    class: state[modeKey] === mode ? "active" : "",
+    onclick: () => {
+      state[modeKey] = mode;
+      render();
+    }
+  }, label);
+}
+
+function dashboardFilteredCases(section) {
+  const mode = section === "cases" ? state.dashboardCasesRangeMode : state.dashboardNotesRangeMode;
+  const startValue = section === "cases" ? state.dashboardCasesRangeStart : state.dashboardNotesRangeStart;
+  const endValue = section === "cases" ? state.dashboardCasesRangeEnd : state.dashboardNotesRangeEnd;
+  const sorted = [...state.cases].sort((a, b) => new Date(b.arrivalTime) - new Date(a.arrivalTime));
+  if (mode === "all") return sorted;
+  if (mode === "month") {
+    const currentMonth = monthKey(new Date());
+    return sorted.filter((item) => monthKey(new Date(item.arrivalTime)) === currentMonth);
+  }
+  let start = parseDateInput(startValue) || startOfMonth(new Date());
+  let end = parseDateInput(endValue) || new Date();
+  if (start > end) [start, end] = [end, start];
+  end = endOfDay(end);
+  return sorted.filter((item) => {
+    const arrival = new Date(item.arrivalTime);
+    return arrival >= start && arrival <= end;
+  });
+}
+
+function formatMonthLabel(date) {
+  return date.toLocaleDateString([], { month: "long", year: "numeric" });
 }
 
 function kpiScreen() {
@@ -1795,10 +1947,78 @@ function diagnosticWaitingMinutes(item) {
 }
 
 function casesScreen() {
+  const cases = filteredCases();
   return h("section", {}, [
-    title("Cases", "Open any observed stroke case."),
-    state.cases.length ? h("div", { class: "case-list" }, state.cases.map(caseRow)) : empty("No cases yet.")
+    title("Cases", "Browse observed stroke cases by month or date range."),
+    casesFilterPanel(),
+    cases.length ? h("div", { class: "case-list" }, cases.map(caseRow)) : empty("No cases found for the selected period.")
   ]);
+}
+
+function casesFilterPanel() {
+  return h("div", { class: "cases-filter-panel" }, [
+    h("div", { class: "cases-filter-modes" }, [
+      casesFilterButton("month", "Month"),
+      casesFilterButton("custom", "Custom Range"),
+      casesFilterButton("all", "All Cases")
+    ]),
+    state.casesRangeMode === "month"
+      ? field("Select month", h("input", {
+          type: "month",
+          value: state.casesMonth,
+          onchange: (event) => {
+            state.casesMonth = event.target.value || monthKey(new Date());
+            render();
+          }
+        }))
+      : state.casesRangeMode === "custom"
+        ? h("div", { class: "cases-date-range" }, [
+            field("From", h("input", {
+              type: "date",
+              value: state.casesRangeStart,
+              onchange: (event) => {
+                state.casesRangeStart = event.target.value;
+                render();
+              }
+            })),
+            field("To", h("input", {
+              type: "date",
+              value: state.casesRangeEnd,
+              onchange: (event) => {
+                state.casesRangeEnd = event.target.value;
+                render();
+              }
+            }))
+          ])
+        : h("div", { class: "cases-filter-summary" }, `${state.cases.length} case${state.cases.length === 1 ? "" : "s"} across all dates`)
+  ]);
+}
+
+function casesFilterButton(mode, label) {
+  return h("button", {
+    type: "button",
+    class: state.casesRangeMode === mode ? "active" : "",
+    onclick: () => {
+      state.casesRangeMode = mode;
+      render();
+    }
+  }, label);
+}
+
+function filteredCases() {
+  const sorted = [...state.cases].sort((a, b) => new Date(b.arrivalTime) - new Date(a.arrivalTime));
+  if (state.casesRangeMode === "all") return sorted;
+  if (state.casesRangeMode === "month") {
+    return sorted.filter((item) => monthKey(new Date(item.arrivalTime)) === state.casesMonth);
+  }
+  let start = parseDateInput(state.casesRangeStart) || startOfMonth(new Date());
+  let end = parseDateInput(state.casesRangeEnd) || new Date();
+  if (start > end) [start, end] = [end, start];
+  end = endOfDay(end);
+  return sorted.filter((item) => {
+    const arrival = new Date(item.arrivalTime);
+    return arrival >= start && arrival <= end;
+  });
 }
 
 function moreScreen() {
@@ -2369,8 +2589,12 @@ function caseRow(item) {
     }
   }, [
     h("div", { class: "case-main" }, [
-      h("strong", {}, `${item.id} - ${item.patientName}`),
-      h("span", {}, `${elapsed} | ${item.suspicion}`)
+      h("strong", {}, item.patientName),
+      h("span", {}, formatCaseDateTime(item.arrivalTime)),
+      h("span", { class: "case-total-time" }, `Total time: ${elapsed}`)
+    ]),
+    h("div", { class: "case-clinical-summary" }, [
+      h("span", { class: item.caseComment?.trim() ? "has-comment" : "" }, item.caseComment?.trim() || "No overall comments")
     ]),
     h("div", { class: "case-row-actions" }, [
       showKpiButton ? h("button", {
@@ -2381,7 +2605,8 @@ function caseRow(item) {
           openKpi(item.id);
         }
       }, `KPI ${kpiProgress.completed}/${kpiProgress.total}`) : null,
-      h("span", { class: `tag ${status.className}` }, status.label)
+      h("span", { class: `tag ${status.className}` }, status.label),
+      item.caseStopped && item.caseStoppedReason ? h("small", { class: "case-status-detail" }, item.caseStoppedReason) : null
     ])
   ]);
 }
@@ -2428,14 +2653,12 @@ function metricLine(item, def) {
   ]);
 }
 
-function recentTable() {
-  if (!state.cases.length) return empty("No cases recorded yet.");
-  const rows = state.cases.slice(0, 8).map((item) => {
+function recentTable(cases = state.cases) {
+  if (!cases.length) return empty("No cases recorded for the selected period.");
+  const rows = cases.map((item) => {
     const status = caseStatus(item);
     const performance = performanceStatus(item);
-    const noteCount = Object.values(item.stageNotes || {}).filter(Boolean).length + (item.caseComment ? 1 : 0) + (item.caseStoppedComment ? 1 : 0);
     return h("tr", { class: `performance-row ${performance.className ? `performance-${performance.className}` : "performance-on-track"}` }, [
-      h("td", {}, item.id),
       h("td", {}, formatReportDate(new Date(item.arrivalTime))),
       h("td", {}, item.patientName),
       h("td", {}, `${item.age || "--"}/${shortGender(item.gender)}`),
@@ -2443,12 +2666,11 @@ function recentTable() {
       h("td", {}, metricText(item, "doorCt")),
       h("td", {}, metricText(item, "doorGroin")),
       h("td", {}, metricText(item, "doorRecan")),
-      h("td", {}, noteCount ? h("span", { class: "note-count" }, `${noteCount} note${noteCount === 1 ? "" : "s"}`) : "--"),
       h("td", {}, h("span", { class: `tag ${status.className}` }, status.label))
     ]);
   });
   return h("div", { class: "table-wrap" }, h("table", {}, [
-    h("thead", {}, h("tr", {}, ["Case ID", "Date", "Patient Name", "Age/Gender", "Arrival Time", "Door -> CT", "Door -> Groin", "Door -> Recanalisation", "Notes", "Status"].map((text) => h("th", {}, text)))),
+    h("thead", {}, h("tr", {}, ["Date", "Patient Name", "Age/Gender", "Arrival Time", "Door -> CT", "Door -> Groin", "Door -> Recanalisation", "Status"].map((text) => h("th", {}, text)))),
     h("tbody", {}, rows)
   ]));
 }
@@ -2473,11 +2695,10 @@ function notesPanel(item) {
   ]);
 }
 
-function dashboardNotes() {
-  const rows = state.cases
-    .filter((item) => Object.values(item.stageNotes || {}).some(Boolean) || item.caseComment || item.caseStopped)
-    .slice(0, 8);
-  if (!rows.length) return empty("No notes or stopped cases yet.");
+function dashboardNotes(cases = state.cases) {
+  const rows = cases
+    .filter((item) => Object.values(item.stageNotes || {}).some(Boolean) || item.caseComment || item.caseStopped);
+  if (!rows.length) return empty("No notes or stopped cases for the selected period.");
   return h("div", { class: "dashboard-notes" }, rows.map((item) => {
     const stageNotes = Object.entries(item.stageNotes || {}).filter(([, note]) => note);
     const performance = performanceStatus(item);
@@ -2485,7 +2706,7 @@ function dashboardNotes() {
       ? `${item.caseStoppedReason || "Stopped"}${item.caseStoppedComment ? ` - ${item.caseStoppedComment}` : ""}`
       : item.caseComment || stageNotes[0]?.[1] || "";
     return h("button", { class: `dashboard-note-row ${performance.className ? `performance-${performance.className}` : "performance-on-track"}`, onclick: () => go("summary", item.id) }, [
-      h("span", {}, item.id),
+      h("span", {}, formatCaseDateTime(item.arrivalTime)),
       h("strong", {}, item.patientName),
       h("p", {}, preview || "Notes added"),
       h("em", {}, item.caseStopped ? "Stopped" : `${stageNotes.length + (item.caseComment ? 1 : 0)} note${stageNotes.length + (item.caseComment ? 1 : 0) === 1 ? "" : "s"}`)
@@ -2667,6 +2888,11 @@ function formatDuration(ms) {
 
 function formatClock(value) {
   return new Date(value).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+}
+
+function formatCaseDateTime(value) {
+  const date = new Date(value);
+  return `${formatReportDate(date)}, ${formatClock(date)}`;
 }
 
 function toLocalInput(date) {
