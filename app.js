@@ -80,6 +80,15 @@ const metricDefs = [
 
 const delayReasons = ["Transfer Delay", "Notification Delay", "CT Busy", "Consent Delay", "Cathlab Delay", "Other"];
 const manualReasons = ["Missed entry", "Observer delayed", "Retrospective correction", "Network issue", "Other"];
+const evtNotPerformedReasons = [
+  "Clinical improvement",
+  "No treatable occlusion",
+  "Unfavourable imaging",
+  "Vessel recanalised",
+  "Consent declined",
+  "Technical / logistical limitation",
+  "Other"
+];
 const kpiTimestampFields = [
   ["hospitalAdmissionTime", "Hospital Admission Time"],
   ["strokeRecognitionTime", "Stroke Recognition Time (for Inpatient Stroke)"],
@@ -625,7 +634,7 @@ function createScreen() {
           },
           ivt: { eligible: "", consent: "", notGivenReason: "" },
           mri: { needed: "" },
-          mt: { evtConsent: "", tici: "" },
+          mt: { evtConsent: "", tici: "", notPerformedReason: "" },
           kpi: {
             ...defaultKpiData(),
             strokePresentationType: form.get("strokePresentationType") || "ER arrival",
@@ -756,6 +765,10 @@ function liveTracker(item, placement = "compact") {
 
 function trackerStageSkipped(item, stageId) {
   if (stageId === "ivtStarted") return isIvtSkipped(item);
+  if (["reachedCathlab", "groinPuncture", "recanalisation"].includes(stageId)) {
+    const workflow = mtWorkflowState(item);
+    return workflow.indicated === "No" || workflow.performed === "No";
+  }
   if (["firstImagingReached", "firstImagingStarted", "firstImagingReviewed"].includes(stageId)) {
     const selected = selectedImagingModalities(item);
     return selected.length > 0 && !imagingProfile(item).ct && !imagingProfile(item).mri;
@@ -794,13 +807,19 @@ function liveCaseBlock(item) {
 
 function liveCaseDetails(item) {
   const recordedCount = Object.values(item.stages || {}).filter((stage) => stage?.time).length;
+  const mtWorkflow = mtWorkflowState(item);
+  const liveMtStages = mtWorkflow.indicated === "No"
+    ? []
+    : mtWorkflow.performed === "Yes"
+      ? [["evtConsent", "EVT Consent Taken"], ...mtStages]
+      : [["evtConsent", "EVT Consent Taken"], ["cathlabInformed", "Cathlab Informed"]];
   const stageGroups = [
     ["ER Phase", erStages],
     ...(imagingProfile(item).ct ? [["CT Phase", ctStages]] : []),
     ...(imagingProfile(item).mri ? [["MRI Phase", mriStages]] : []),
     ["Ward / Discharge", wardStages],
     ["IV Thrombolysis", [["ivtConsent", "IVT Consent Taken"], ["ivtStarted", "IVT Started / Bolus Given"]]],
-    ["Mechanical Thrombectomy", [["evtConsent", "EVT Consent Taken"], ...mtStages]]
+    ...(liveMtStages.length ? [["Mechanical Thrombectomy", liveMtStages]] : [])
   ];
   return h("details", { class: "live-case-details", open: true }, [
     h("summary", {}, [
@@ -821,7 +840,7 @@ function liveCaseDetails(item) {
       ]),
       h("div", { class: "live-metric-grid" }, metricDefs.map((def) => {
         const minutes = metricMinutes(item, def);
-        return liveDetailValue(def[1], minutes == null ? "Pending" : `${minutes} min`);
+        return liveDetailValue(def[1], metricNotApplicable(item, def[0]) ? "Not applicable" : minutes == null ? "Pending" : `${minutes} min`);
       })),
       h("div", { class: "live-phase-grid" }, stageGroups.map(([label, stages]) => liveStageGroup(item, label, stages))),
       liveCaseNotes(item),
@@ -1060,7 +1079,7 @@ function mriAccordion(item) {
   ]);
 }
 
-function stageRow(item, id, labelText) {
+function stageRow(item, id, labelText, options = {}) {
   const stage = item.stages[id];
   const notApplicable = Boolean(stage?.notApplicable);
   const recorded = Boolean(stage?.time);
@@ -1068,20 +1087,23 @@ function stageRow(item, id, labelText) {
   const note = item.stageNotes?.[id] || "";
   const closed = Boolean(item.caseStopped);
   const pathwayLocked = notApplicable && stage?.reason === "Not applicable for selected imaging pathway";
+  const workflowLocked = Boolean(options.disabled);
+  const locked = closed || pathwayLocked || workflowLocked;
+  const pendingText = options.pendingText || "Not yet recorded";
   return h("div", { class: "stage" }, [
     h("i", { class: `dot ${notApplicable ? "na" : stage?.mode || ""}` }),
     h("div", {}, [
       h("div", { class: "stage-copy" }, [
         h("strong", {}, labelText),
-        h("span", {}, notApplicable ? "Not applicable" : recorded ? `${formatClock(stage.time)}${stage.reason ? ` | ${stage.reason}` : ""}` : "Not yet recorded")
+        h("span", {}, notApplicable ? "Not applicable" : recorded ? `${formatClock(stage.time)}${stage.reason ? ` | ${stage.reason}` : ""}` : workflowLocked ? pendingText : "Not yet recorded")
       ]),
       h("div", { class: `stage-actions ${supportsNotApplicable ? "with-na" : ""}` }, [
-        h("button", { class: `record-btn ${recorded ? "done" : ""}`, disabled: closed || pathwayLocked, onclick: () => recordStage(item.id, id, "auto") }, recorded ? "RECORDED" : "RECORD NOW"),
-        h("button", { class: "manual-btn", disabled: closed || pathwayLocked, onclick: () => openManual(item.id, id, labelText) }, "ENTER MANUAL TIME"),
+        h("button", { class: `record-btn ${recorded ? "done" : ""}`, disabled: locked, onclick: () => recordStage(item.id, id, "auto") }, recorded ? "RECORDED" : "RECORD NOW"),
+        h("button", { class: "manual-btn", disabled: locked, onclick: () => openManual(item.id, id, labelText) }, "ENTER MANUAL TIME"),
         h("button", { class: `note-btn ${note ? "has-note" : ""}`, onclick: () => openNote(item.id, id, labelText) }, note ? "VIEW NOTE" : "NOTES"),
         supportsNotApplicable ? h("button", {
           class: `na-btn ${notApplicable ? "active" : ""}`,
-          disabled: closed || pathwayLocked,
+          disabled: locked,
           onclick: () => toggleStageNotApplicable(item.id, id)
         }, pathwayLocked ? "NOT IN PLAN" : notApplicable ? "MARK APPLICABLE" : "NOT APPLICABLE") : null
       ]),
@@ -1128,16 +1150,37 @@ function ivtScreen() {
 function mtScreen() {
   const item = currentCase();
   if (!item) return homeScreen();
+  const workflow = mtWorkflowState(item);
   return h("section", {}, [
     title("Mechanical Thrombectomy", `${item.id} | ${item.patientName}`),
     h("div", { class: "form-card" }, [
-      optionField("EVT Indicated", "evtIndicated", kpiValue(item, "evtIndicated"), ["Yes", "No"], (value) => updateKpiField(item.id, "evtIndicated", value)),
-      optionField("Large Vessel Occlusion", "largeVesselOcclusion", kpiValue(item, "largeVesselOcclusion"), ["Yes", "No"], (value) => updateKpiField(item.id, "largeVesselOcclusion", value)),
-      optionField("EVT Performed", "evtPerformed", kpiValue(item, "evtPerformed"), ["Yes", "No"], (value) => updateKpiField(item.id, "evtPerformed", value)),
-      field("Patient Arrival Type", select("evtArrivalType", ["", "Direct arrival", "Transfer"], kpiValue(item, "evtArrivalType"), (value) => updateKpiField(item.id, "evtArrivalType", value))),
-      stageRow(item, "evtConsent", "EVT Consent Taken"),
-      ...mtStages.map(([id, labelText]) => stageRow(item, id, labelText)),
-      field("Final TICI Score", select("tici", ["", "0", "1", "2A", "2B", "2C", "3"], item.mt.tici, (value) => updateNested(item.id, "mt", "tici", value))),
+      optionField("EVT Indicated", "evtIndicated", workflow.indicated, ["Yes", "No"], (value) => updateEvtDecision(item.id, "evtIndicated", value)),
+      workflow.indicated === "No"
+        ? phaseSkippedPanel("Mechanical thrombectomy not indicated", "The procedural timeline is not required for this case.")
+        : workflow.indicated === "Yes"
+          ? h("div", { class: "phase-stage-list" }, [
+              optionField("Large Vessel Occlusion", "largeVesselOcclusion", workflow.lvo, ["Yes", "No"], (value) => updateEvtDecision(item.id, "largeVesselOcclusion", value)),
+              optionField("EVT Performed", "evtPerformed", workflow.performed, ["Pending", "Yes", "No"], (value) => updateEvtDecision(item.id, "evtPerformed", value)),
+              field("Patient Arrival Type", select("evtArrivalType", ["", "Direct arrival", "Transfer"], kpiValue(item, "evtArrivalType"), (value) => updateKpiField(item.id, "evtArrivalType", value))),
+              stageRow(item, "evtConsent", "EVT Consent Taken"),
+              stageRow(item, "cathlabInformed", "Cathlab Informed"),
+              workflow.performed === "No"
+                ? field("Reason EVT not performed", select("notPerformedReason", ["", ...evtNotPerformedReasons], item.mt?.notPerformedReason || "", (value) => updateNested(item.id, "mt", "notPerformedReason", value)))
+                : null,
+              workflow.performed === "Pending" || !workflow.performed
+                ? h("div", { class: "phase-choice-prompt" }, "EVT decision is pending. Consent and Cathlab notification can be recorded now; procedural timings will open when EVT Performed is Yes.")
+                : null,
+              workflow.performed === "No"
+                ? phaseSkippedPanel("Procedural timings not required", "Earlier consent or Cathlab notification times remain preserved. Select the reason EVT was not performed.")
+                : null,
+              ...(workflow.performed === "Yes"
+                ? mtStages.slice(1).map(([id, labelText]) => stageRow(item, id, labelText))
+                : []),
+              workflow.performed === "Yes"
+                ? field("Final TICI Score", select("tici", ["", "0", "1", "2A", "2B", "2C", "3"], item.mt.tici, (value) => updateNested(item.id, "mt", "tici", value)))
+                : null
+            ])
+          : h("div", { class: "phase-choice-prompt" }, "Select whether EVT is indicated to continue this section."),
       h("button", { class: "secondary-btn", onclick: () => go("timeline", item.id) }, "BACK TO TIMELINE")
     ])
   ]);
@@ -1229,6 +1272,10 @@ function handlePendingClick(caseId, entry) {
   }
   if (entry.type === "details") {
     go("edit", caseId);
+    return;
+  }
+  if (entry.type === "mt") {
+    go("mt", caseId);
     return;
   }
   if (entry.type === "stage") {
@@ -2317,6 +2364,9 @@ function withTimeout(promise, ms) {
 function recordStage(caseId, stageId, mode, manualTime, reason = "") {
   const item = state.cases.find((entry) => entry.id === caseId);
   if (!item || item.caseStopped) return;
+  const mtWorkflow = mtWorkflowState(item);
+  if (["evtConsent", "cathlabInformed"].includes(stageId) && mtWorkflow.indicated !== "Yes") return;
+  if (mtStages.slice(1).some(([id]) => id === stageId) && mtWorkflow.performed !== "Yes") return;
   const time = manualTime || new Date().toISOString();
   item.stages[stageId] = { time, mode, reason, notApplicable: false, previous: null };
   syncStageToKpi(item, stageId, time);
@@ -2729,12 +2779,13 @@ function metricLine(item, def) {
   const minutes = metricMinutes(item, def);
   const status = metricStatus(minutes, def[4], def[5]);
   const width = minutes == null ? 0 : Math.min(100, Math.round((minutes / def[5]) * 100));
+  const notApplicable = metricNotApplicable(item, def[0]);
   return h("div", { class: "metric-line" }, [
     h("div", {}, [
       h("strong", {}, def[1]),
       h("div", { class: `bar ${status.bar}` }, h("i", { style: `width:${width}%` }))
     ]),
-    h("span", { class: `tag ${status.className}` }, minutes == null ? "Pending" : `${minutes} min`)
+    h("span", { class: `tag ${notApplicable ? "grey" : status.className}` }, notApplicable ? "Not applicable" : minutes == null ? "Pending" : `${minutes} min`)
   ]);
 }
 
@@ -2938,6 +2989,33 @@ function updateKpiField(caseId, key, value) {
   render();
 }
 
+function updateEvtDecision(caseId, key, value) {
+  const item = state.cases.find((entry) => entry.id === caseId);
+  if (!item) return;
+  item.kpi = { ...defaultKpiData(), ...(item.kpi || {}), [key]: value };
+  item.mt = { evtConsent: "", tici: "", notPerformedReason: "", ...(item.mt || {}) };
+  if (key === "evtIndicated" && value === "Yes" && !item.kpi.evtPerformed) {
+    item.kpi.evtPerformed = "Pending";
+  }
+  if (key === "evtIndicated" && value === "No") {
+    item.mt.notPerformedReason = "";
+  }
+  if (key === "evtPerformed" && value !== "No") {
+    item.mt.notPerformedReason = "";
+  }
+  item.kpiUpdatedAt = new Date().toISOString();
+  saveCases();
+  render();
+}
+
+function mtWorkflowState(item) {
+  return {
+    indicated: kpiValue(item, "evtIndicated"),
+    lvo: kpiValue(item, "largeVesselOcclusion"),
+    performed: kpiValue(item, "evtPerformed")
+  };
+}
+
 function signoffMissingItems(item) {
   const missing = [];
   if (!item.observerName?.trim()) missing.push({ label: "Data entered by", type: "observer" });
@@ -2971,6 +3049,21 @@ function signoffMissingItems(item) {
   imagingRequirements.forEach(([id, label, section]) => {
     if (!item.stages[id]?.time) missing.push({ label, type: "stage", stageId: id, section });
   });
+  const mtWorkflow = mtWorkflowState(item);
+  if (mtWorkflow.indicated === "Yes") {
+    if (!["Yes", "No"].includes(mtWorkflow.lvo)) {
+      missing.push({ label: "Large Vessel Occlusion", type: "mt" });
+    }
+    if (!["Yes", "No"].includes(mtWorkflow.performed)) {
+      missing.push({ label: "Final EVT Performed decision", type: "mt" });
+    }
+    if (!kpiValue(item, "evtArrivalType")) {
+      missing.push({ label: "EVT Patient Arrival Type", type: "mt" });
+    }
+    if (mtWorkflow.performed === "No" && !item.mt?.notPerformedReason) {
+      missing.push({ label: "Reason EVT not performed", type: "mt" });
+    }
+  }
   return missing;
 }
 
@@ -2991,7 +3084,13 @@ function metricStageTime(item, stageId) {
 function metricText(item, id) {
   const def = metricDefs.find((entry) => entry[0] === id);
   const minutes = metricMinutes(item, def);
-  return minutes == null ? "--" : `${minutes} min`;
+  return metricNotApplicable(item, id) ? "N/A" : minutes == null ? "--" : `${minutes} min`;
+}
+
+function metricNotApplicable(item, id) {
+  if (!["doorCathlab", "doorGroin", "doorRecan", "ctGroin", "groinRecan"].includes(id)) return false;
+  const workflow = mtWorkflowState(item);
+  return workflow.indicated === "No" || workflow.performed === "No";
 }
 
 function medianMetric(cases, id) {
@@ -3077,8 +3176,15 @@ function isIvtSkipped(item) {
 }
 
 function mtStatus(item) {
+  const workflow = mtWorkflowState(item);
+  if (workflow.indicated === "No") return "Not indicated";
+  if (workflow.indicated === "Yes" && workflow.performed === "No") {
+    return item.mt?.notPerformedReason ? `Not performed: ${item.mt.notPerformedReason}` : "Not performed";
+  }
   if (item.stages.recanalisation) return "Completed";
-  if (item.stages.evtConsent || item.mt.evtConsent || mtStages.some(([id]) => item.stages[id])) return "In progress";
+  if (workflow.indicated === "Yes" && (workflow.performed === "Pending" || !workflow.performed)) return "Decision pending";
+  if (item.stages.evtConsent || item.mt?.evtConsent || mtStages.some(([id]) => item.stages[id])) return "In progress";
+  if (workflow.indicated === "Yes" && workflow.performed === "Yes") return "Planned / In progress";
   return "Not started";
 }
 
