@@ -13,22 +13,29 @@ const defaultAccessSettings = {
   updatedAt: ""
 };
 
+const imagingModalityOptions = [
+  "CT Brain",
+  "CT Brain + CT Angiography",
+  "MRI Brain Screening",
+  "MRI Brain + MR Angiography"
+];
+
 const erStages = [
   ["arrival", "Arrival at ER"],
   ["codeStroke", "Code Stroke Activated"],
   ["neuroInformed", "Neurology Informed"],
   ["initialOrders", "Completed Neurological Examination"],
   ["dysphagiaScreening", "Initial Dysphagia Screening Completed"],
-  ["ctInformed", "Brain Imaging Requested / CT Informed"],
-  ["shiftToCt", "Shift to CT"]
+  ["ctInformed", "Brain Imaging Requested"],
+  ["shiftToCt", "Shift to Imaging"]
 ];
 
 const ctStages = [
   ["reachedCt", "Reached CT"],
   ["ncctStarted", "First Brain Imaging / NCCT Started"],
   ["ncctCompleted", "NCCT Completed"],
-  ["ctaStarted", "CTA/CTP Started"],
-  ["ctaCompleted", "CTA/CTP Completed"],
+  ["ctaStarted", "CT Angiography Started"],
+  ["ctaCompleted", "CT Angiography Completed"],
   ["imagingReviewed", "Imaging Reviewed"]
 ];
 
@@ -37,6 +44,8 @@ const mriStages = [
   ["reachedMri", "Reached MRI"],
   ["mriStarted", "MRI Started"],
   ["mriCompleted", "MRI Completed"],
+  ["mraStarted", "MR Angiography Started"],
+  ["mraCompleted", "MR Angiography Completed"],
   ["mriImagingReviewed", "Imaging Reviewed"]
 ];
 
@@ -49,7 +58,6 @@ const wardStages = [
 ];
 
 const mtStages = [
-  ["mtDecided", "Thrombectomy Decided"],
   ["cathlabInformed", "Cathlab Informed"],
   ["shiftedCathlab", "Shifted to Cathlab"],
   ["reachedCathlab", "Reached Cathlab"],
@@ -60,13 +68,13 @@ const mtStages = [
 ];
 
 const metricDefs = [
-  ["doorCt", "Door -> CT", "arrival", "reachedCt", 25, 35],
-  ["doorImaging", "Door -> Imaging Review", "arrival", "imagingReviewed", 45, 60],
+  ["doorCt", "Door -> First Brain Imaging", "arrival", "firstImagingStarted", 25, 35],
+  ["doorImaging", "Door -> Imaging Review", "arrival", "firstImagingReviewed", 45, 60],
   ["doorIvt", "Door -> IVT Started", "arrival", "ivtStarted", 45, 60],
   ["doorCathlab", "Door -> Cathlab", "arrival", "reachedCathlab", 70, 90],
   ["doorGroin", "Door -> Groin Puncture", "arrival", "groinPuncture", 90, 120],
   ["doorRecan", "Door -> Recanalisation", "arrival", "recanalisation", 150, 180],
-  ["ctGroin", "CT -> Groin Puncture", "reachedCt", "groinPuncture", 75, 100],
+  ["ctGroin", "First Imaging -> Groin Puncture", "firstImagingStarted", "groinPuncture", 75, 100],
   ["groinRecan", "Groin -> Recanalisation", "groinPuncture", "recanalisation", 60, 90]
 ];
 
@@ -147,12 +155,8 @@ const signoffStageRequirements = [
   ["arrival", "Arrival at ER", "er"],
   ["codeStroke", "Code Stroke Activated", "er"],
   ["neuroInformed", "Neurology Informed", "er"],
-  ["ctInformed", "CT Informed", "er"],
-  ["shiftToCt", "Shift to CT", "er"],
-  ["reachedCt", "Reached CT", "ct"],
-  ["ncctStarted", "NCCT Started", "ct"],
-  ["ncctCompleted", "NCCT Completed", "ct"],
-  ["imagingReviewed", "Imaging Reviewed", "ct"]
+  ["ctInformed", "Brain Imaging Requested", "er"],
+  ["shiftToCt", "Shift to Imaging", "er"]
 ];
 const nihssGroups = [
   {
@@ -628,6 +632,7 @@ function createScreen() {
             hospitalAdmissionTime: arrival
           },
           stageNotes: {},
+          imagingModalities: [],
           delayReason: "",
           caseComment: "",
           caseStopped: false,
@@ -688,8 +693,8 @@ function timelineScreen() {
   return h("section", {}, [
     timerCard(item),
     h("button", { class: "secondary-btn full-width-action", onclick: () => go("edit", item.id) }, "EDIT CASE DETAILS / NIHSS"),
-    accordion("er", "SECTION 1 - ER PHASE", erStages, item),
-    accordion("ct", "SECTION 2 - CT PHASE", ctStages, item),
+    erAccordion(item),
+    imagingPhaseAccordion("ct", "SECTION 2 - CT PHASE", ctStages, item),
     mriAccordion(item),
     accordion("ward", "SECTION 4 - WARD / DISCHARGE", wardStages, item),
     h("div", { class: "section-card" }, [
@@ -705,10 +710,10 @@ function liveTracker(item, placement = "compact") {
     ["arrival", "Door", "ER"],
     ["codeStroke", "Code", "ER"],
     ["neuroInformed", "Neuro", "ER"],
-    ["shiftToCt", "To CT/MRI", "ER"],
-    ["reachedCt", "CT/MRI", "CT"],
-    ["ncctStarted", "NCCT/MRI", "CT"],
-    ["imagingReviewed", "Review", "CT"],
+    ["shiftToCt", "To Imaging", "ER"],
+    ["firstImagingReached", "Reached Imaging", "IMG"],
+    ["firstImagingStarted", "First Brain Imaging", "IMG"],
+    ["firstImagingReviewed", "Imaging Reviewed", "IMG"],
     ["ivtStarted", "IVT", "Rx"],
     ["reachedCathlab", "Cathlab", "MT"],
     ["groinPuncture", "Groin", "MT"],
@@ -733,7 +738,8 @@ function liveTracker(item, placement = "compact") {
     h("div", { class: "tracker-progress" }, h("i", { style: `width:${percent}%` })),
     h("div", { class: "tracker-rail" }, trackerSteps.map(([id, label, group], index) => {
       const skipped = trackerStageSkipped(item, id);
-      const done = Boolean(item.stages[id]?.time) && !skipped;
+      const stepTime = trackerStageTime(item, id);
+      const done = Boolean(stepTime) && !skipped;
       const current = !done && !skipped && nextStep?.[0] === id;
       return h("button", {
         type: "button",
@@ -742,18 +748,30 @@ function liveTracker(item, placement = "compact") {
       }, [
         h("b", {}, done ? "OK" : skipped ? "N/A" : String(index + 1)),
         h("span", {}, label),
-        h("small", {}, done ? formatClock(item.stages[id].time) : skipped ? "Skipped" : group)
+        h("small", {}, done ? formatClock(stepTime) : skipped ? "Skipped" : group)
       ]);
     }))
   ]);
 }
 
 function trackerStageSkipped(item, stageId) {
-  return stageId === "ivtStarted" && isIvtSkipped(item);
+  if (stageId === "ivtStarted") return isIvtSkipped(item);
+  if (["firstImagingReached", "firstImagingStarted", "firstImagingReviewed"].includes(stageId)) {
+    const selected = selectedImagingModalities(item);
+    return selected.length > 0 && !imagingProfile(item).ct && !imagingProfile(item).mri;
+  }
+  return false;
+}
+
+function trackerStageTime(item, stageId) {
+  if (stageId === "firstImagingReached") return firstRecordedTime(item, ["reachedCt", "reachedMri"]);
+  if (stageId === "firstImagingStarted") return firstBrainImagingStartTime(item);
+  if (stageId === "firstImagingReviewed") return firstRecordedTime(item, ["imagingReviewed", "mriImagingReviewed"]);
+  return stageTime(item, stageId);
 }
 
 function trackerStageResolved(item, stageId) {
-  return Boolean(item.stages[stageId]?.time) || trackerStageSkipped(item, stageId);
+  return Boolean(trackerStageTime(item, stageId)) || trackerStageSkipped(item, stageId);
 }
 
 function liveCasesPanel() {
@@ -778,8 +796,8 @@ function liveCaseDetails(item) {
   const recordedCount = Object.values(item.stages || {}).filter((stage) => stage?.time).length;
   const stageGroups = [
     ["ER Phase", erStages],
-    ["CT Phase", ctStages],
-    ["MRI Phase", mriStages],
+    ...(imagingProfile(item).ct ? [["CT Phase", ctStages]] : []),
+    ...(imagingProfile(item).mri ? [["MRI Phase", mriStages]] : []),
     ["Ward / Discharge", wardStages],
     ["IV Thrombolysis", [["ivtConsent", "IVT Consent Taken"], ["ivtStarted", "IVT Started / Bolus Given"]]],
     ["Mechanical Thrombectomy", [["evtConsent", "EVT Consent Taken"], ...mtStages]]
@@ -797,6 +815,7 @@ function liveCaseDetails(item) {
         liveDetailValue("Suspicion", item.suspicion || "Unknown"),
         liveDetailValue("NIHSS", item.nihss || "Not recorded"),
         liveDetailValue("Side / Territory", `${item.side || "Unknown"} / ${item.territory || "Unknown"}`),
+        liveDetailValue("Imaging Plan", selectedImagingModalities(item).join(", ") || "Not selected"),
         liveDetailValue("IVT", ivtStatus(item)),
         liveDetailValue("Thrombectomy", mtStatus(item))
       ]),
@@ -859,6 +878,14 @@ function jumpToTrackerStep(caseId, stageId) {
   }
   if (mtStages.some(([id]) => id === stageId)) {
     go("mt", caseId);
+    return;
+  }
+  if (["firstImagingReached", "firstImagingStarted", "firstImagingReviewed"].includes(stageId)) {
+    const item = state.cases.find((entry) => entry.id === caseId);
+    const profile = item ? imagingProfile(item) : { ct: true, mri: false };
+    if (profile.ct) state.openSections.ct = true;
+    else if (profile.mri) state.openSections.mri = true;
+    go("timeline", caseId);
     return;
   }
   if (erStages.some(([id]) => id === stageId)) state.openSections.er = true;
@@ -954,10 +981,64 @@ function accordion(key, label, stages, item) {
   ]);
 }
 
+function erAccordion(item) {
+  const open = state.openSections.er;
+  return h("div", { class: "section-card" }, [
+    h("button", {
+      class: "accordion-head",
+      onclick: () => {
+        state.openSections.er = !state.openSections.er;
+        render();
+      }
+    }, [h("strong", {}, "SECTION 1 - ER PHASE"), h("span", { class: "tag grey" }, open ? "OPEN" : "CLOSED")]),
+    open ? h("div", { class: "accordion-body" }, [
+      ...erStages.slice(0, 5).map(([id, labelText]) => stageRow(item, id, labelText)),
+      imagingModalityField(item),
+      ...erStages.slice(5).map(([id, labelText]) => stageRow(item, id, labelText))
+    ]) : null
+  ]);
+}
+
+function imagingModalityField(item) {
+  const selected = selectedImagingModalities(item);
+  return field("Decided Imaging Modality (select one or more)", h("div", { class: "segmented option-grid imaging-modality-grid" },
+    imagingModalityOptions.map((option) => h("button", {
+      type: "button",
+      class: selected.includes(option) ? "active" : "",
+      onclick: () => toggleImagingModality(item.id, option)
+    }, option))
+  ));
+}
+
+function imagingPhaseAccordion(key, label, stages, item) {
+  const open = state.openSections[key];
+  const profile = imagingProfile(item);
+  const explicitlySelected = Array.isArray(item.imagingModalities) && item.imagingModalities.length > 0;
+  const skipped = explicitlySelected && !profile.ct;
+  return h("div", { class: `section-card ${skipped ? "phase-skipped" : ""}` }, [
+    h("button", {
+      class: "accordion-head",
+      onclick: () => {
+        state.openSections[key] = !state.openSections[key];
+        render();
+      }
+    }, [
+      h("strong", {}, label),
+      h("span", { class: `tag ${skipped ? "grey" : ""}` }, skipped ? "SKIPPED" : open ? "OPEN" : "CLOSED")
+    ]),
+    open ? h("div", { class: "accordion-body" }, [
+      skipped
+        ? phaseSkippedPanel("CT phase skipped", "The selected imaging pathway does not include CT.")
+        : h("div", { class: "phase-stage-list" }, stages.map(([id, labelText]) => stageRow(item, id, labelText)))
+    ]) : null
+  ]);
+}
+
 function mriAccordion(item) {
   const open = state.openSections.mri;
-  const needed = item.mri?.needed || "";
-  const skipped = needed === "No";
+  const profile = imagingProfile(item);
+  const explicitlySelected = Array.isArray(item.imagingModalities) && item.imagingModalities.length > 0;
+  const skipped = explicitlySelected ? !profile.mri : item.mri?.needed === "No";
   return h("div", { class: `section-card ${skipped ? "phase-skipped" : ""}` }, [
     h("button", {
       class: "accordion-head",
@@ -970,12 +1051,11 @@ function mriAccordion(item) {
       h("span", { class: `tag ${skipped ? "grey" : ""}` }, skipped ? "SKIPPED" : open ? "OPEN" : "CLOSED")
     ]),
     open ? h("div", { class: "accordion-body" }, [
-      optionField("MRI Needed", "mriNeeded", needed, ["Yes", "No"], (value) => updateNested(item.id, "mri", "needed", value)),
       skipped
-        ? phaseSkippedPanel("MRI phase skipped", "MRI was marked as not needed for this case.")
-        : needed === "Yes"
+        ? phaseSkippedPanel("MRI phase skipped", "The selected imaging pathway does not include MRI.")
+        : explicitlySelected || item.mri?.needed === "Yes"
           ? h("div", { class: "phase-stage-list" }, mriStages.map(([id, labelText]) => stageRow(item, id, labelText)))
-          : h("div", { class: "phase-choice-prompt" }, "Select whether MRI is needed to continue this phase.")
+          : h("div", { class: "phase-choice-prompt" }, "Select the decided imaging modality in the ER phase to continue.")
     ]) : null
   ]);
 }
@@ -984,9 +1064,10 @@ function stageRow(item, id, labelText) {
   const stage = item.stages[id];
   const notApplicable = Boolean(stage?.notApplicable);
   const recorded = Boolean(stage?.time);
-  const supportsNotApplicable = ["ctaStarted", "ctaCompleted"].includes(id);
+  const supportsNotApplicable = ["ctaStarted", "ctaCompleted", "mraStarted", "mraCompleted"].includes(id);
   const note = item.stageNotes?.[id] || "";
   const closed = Boolean(item.caseStopped);
+  const pathwayLocked = notApplicable && stage?.reason === "Not applicable for selected imaging pathway";
   return h("div", { class: "stage" }, [
     h("i", { class: `dot ${notApplicable ? "na" : stage?.mode || ""}` }),
     h("div", {}, [
@@ -995,14 +1076,14 @@ function stageRow(item, id, labelText) {
         h("span", {}, notApplicable ? "Not applicable" : recorded ? `${formatClock(stage.time)}${stage.reason ? ` | ${stage.reason}` : ""}` : "Not yet recorded")
       ]),
       h("div", { class: `stage-actions ${supportsNotApplicable ? "with-na" : ""}` }, [
-        h("button", { class: `record-btn ${recorded ? "done" : ""}`, disabled: closed, onclick: () => recordStage(item.id, id, "auto") }, recorded ? "RECORDED" : "RECORD NOW"),
-        h("button", { class: "manual-btn", disabled: closed, onclick: () => openManual(item.id, id, labelText) }, "ENTER MANUAL TIME"),
+        h("button", { class: `record-btn ${recorded ? "done" : ""}`, disabled: closed || pathwayLocked, onclick: () => recordStage(item.id, id, "auto") }, recorded ? "RECORDED" : "RECORD NOW"),
+        h("button", { class: "manual-btn", disabled: closed || pathwayLocked, onclick: () => openManual(item.id, id, labelText) }, "ENTER MANUAL TIME"),
         h("button", { class: `note-btn ${note ? "has-note" : ""}`, onclick: () => openNote(item.id, id, labelText) }, note ? "VIEW NOTE" : "NOTES"),
         supportsNotApplicable ? h("button", {
           class: `na-btn ${notApplicable ? "active" : ""}`,
-          disabled: closed,
+          disabled: closed || pathwayLocked,
           onclick: () => toggleStageNotApplicable(item.id, id)
-        }, notApplicable ? "MARK APPLICABLE" : "NOT APPLICABLE") : null
+        }, pathwayLocked ? "NOT IN PLAN" : notApplicable ? "MARK APPLICABLE" : "NOT APPLICABLE") : null
       ]),
       note ? h("p", { class: "stage-note-preview" }, note) : null
     ])
@@ -1430,7 +1511,7 @@ function buildNabhKpiReport(cases, admin) {
   const strokeUnitPatientDays = cases.reduce((sum, item) => sum + patientStrokeUnitDays(item), 0);
   const patientFalls = cases.reduce((sum, item) => sum + patientFallCount(item), 0);
   const diagnosticCases = cases.filter((item) => kpiValue(item, "diagnosticImagingPerformed") === "Yes" || Boolean(kpiValue(item, "diagnosticImagingStartTime")));
-  const brainImagingCases = cases.filter((item) => kpiValue(item, "diagnosticImagingPerformed") === "Yes" || Boolean(stageTime(item, "ncctStarted")));
+  const brainImagingCases = cases.filter((item) => kpiValue(item, "diagnosticImagingPerformed") === "Yes" || Boolean(firstBrainImagingStartTime(item)));
   const ivtCases = cases.filter((item) => item.ivt?.eligible === "Yes" || kpiValue(item, "ivtGiven") === "Yes");
   const evtCases = cases.filter((item) => kpiValue(item, "evtPerformed") === "Yes" || Boolean(stageTime(item, "groinPuncture")));
   const carotidCases = cases.filter((item) => kpiValue(item, "ceaPerformed") === "Yes" || kpiValue(item, "carotidAngioplastyStentingPerformed") === "Yes");
@@ -1442,7 +1523,7 @@ function buildNabhKpiReport(cases, admin) {
     Boolean(item.mt?.tici)
   );
   return [
-    averageKpi(1, "Time to first brain imaging", brainImagingCases, (item) => minutesBetween(strokeReferenceTime(item), stageTime(item, "ncctStarted")), "Average minutes"),
+    averageKpi(1, "Time to first brain imaging", brainImagingCases, (item) => minutesBetween(strokeReferenceTime(item), firstBrainImagingStartTime(item)), "Average minutes"),
     dualIvtComplianceKpi(ivtCases),
     verifiedOutcomeKpi(3, "sICH after IVT", ivtCases, "sichAfterIvt", (item) => validatedSich(item, "Ivt", stageTime(item, "ivtStarted"))),
     averageKpi(4, "Time to detailed neurological assessment of inpatients", inpatientCases, (item) => minutesBetween(kpiValue(item, "strokeRecognitionTime"), stageTime(item, "initialOrders")), "Average minutes"),
@@ -1804,19 +1885,20 @@ function kpiValue(item, key) {
 
 function derivedKpiData(item) {
   const stages = item.stages || {};
+  const firstImagingStart = firstBrainImagingStartTime(item);
   return {
     hospitalAdmissionTime: item.arrivalTime || "",
     dysphagiaScreening: stages.dysphagiaScreening?.time ? "Yes" : "",
     diagnosticImagingRequestTime: stages.ctInformed?.time || "",
-    diagnosticImagingStartTime: stages.ncctStarted?.time || "",
-    diagnosticImagingPerformed: stages.ncctStarted?.time ? "Yes" : "",
+    diagnosticImagingStartTime: firstImagingStart,
+    diagnosticImagingPerformed: firstImagingStart ? "Yes" : "",
     strokeUnitAdmissionTime: stages.strokeUnitAdmission?.time || "",
     physiotherapyAssessmentTime: stages.physiotherapyAssessment?.time || "",
     speechTherapyAssessmentTime: stages.speechTherapyAssessment?.time || "",
     strokeUnitDischargeTime: stages.strokeUnitDischarge?.time || "",
     dischargeTime: stages.hospitalDischarge?.time || "",
     ivtGiven: stages.ivtStarted?.time ? "Yes" : "",
-    evtIndicated: stages.mtDecided?.time ? "Yes" : "",
+    evtIndicated: item.kpi?.evtIndicated || (stages.mtDecided?.time ? "Yes" : ""),
     evtPerformed: stages.groinPuncture?.time || stages.firstPass?.time || stages.recanalisation?.time ? "Yes" : "",
     largeVesselOcclusion: item.suspicion === "LVO Suspected" ? "Yes" : ""
   };
@@ -1881,6 +1963,17 @@ function stageTime(item, id) {
   return item.stages?.[id]?.time || "";
 }
 
+function firstRecordedTime(item, stageIds) {
+  return stageIds
+    .map((stageId) => stageTime(item, stageId))
+    .filter(Boolean)
+    .sort((a, b) => new Date(a) - new Date(b))[0] || "";
+}
+
+function firstBrainImagingStartTime(item) {
+  return firstRecordedTime(item, ["ncctStarted", "mriStarted"]);
+}
+
 function minutesBetween(start, end) {
   if (!start || !end) return null;
   const minutes = Math.round((new Date(end) - new Date(start)) / 60000);
@@ -1926,7 +2019,7 @@ function patientFallCount(item) {
 
 function diagnosticWaitingMinutes(item) {
   const start = kpiValue(item, "diagnosticImagingPresentationTime");
-  const end = kpiValue(item, "diagnosticImagingStartTime") || stageTime(item, "ncctStarted");
+  const end = kpiValue(item, "diagnosticImagingStartTime") || firstBrainImagingStartTime(item);
   return minutesBetween(start, end);
 }
 
@@ -2248,6 +2341,7 @@ function toggleStageNotApplicable(caseId, stageId) {
       previous: current?.time ? current : null
     };
   }
+  if (["ncctStarted", "mriStarted"].includes(stageId)) syncImagingKpiFields(item);
   saveCases();
   render();
 }
@@ -2255,7 +2349,6 @@ function toggleStageNotApplicable(caseId, stageId) {
 function syncStageToKpi(item, stageId, time) {
   const timestampMap = {
     ctInformed: "diagnosticImagingRequestTime",
-    ncctStarted: "diagnosticImagingStartTime",
     strokeUnitAdmission: "strokeUnitAdmissionTime",
     physiotherapyAssessment: "physiotherapyAssessmentTime",
     speechTherapyAssessment: "speechTherapyAssessmentTime",
@@ -2266,10 +2359,18 @@ function syncStageToKpi(item, stageId, time) {
   item.kpi = { ...defaultKpiData(), ...(item.kpi || {}) };
   if (timestampKey) item.kpi[timestampKey] = time;
   if (stageId === "dysphagiaScreening") item.kpi.dysphagiaScreening = "Yes";
-  if (stageId === "ncctStarted") item.kpi.diagnosticImagingPerformed = "Yes";
+  if (["ncctStarted", "mriStarted"].includes(stageId)) syncImagingKpiFields(item);
   if (stageId === "ivtStarted") item.kpi.ivtGiven = "Yes";
-  if (stageId === "mtDecided") item.kpi.evtIndicated = "Yes";
   if (["groinPuncture", "firstPass", "recanalisation"].includes(stageId)) item.kpi.evtPerformed = "Yes";
+}
+
+function syncImagingKpiFields(item) {
+  item.kpi = { ...defaultKpiData(), ...(item.kpi || {}) };
+  const firstImagingStart = firstBrainImagingStartTime(item);
+  if (firstImagingStart) {
+    item.kpi.diagnosticImagingStartTime = firstImagingStart;
+    item.kpi.diagnosticImagingPerformed = "Yes";
+  }
 }
 
 function openManual(caseId, stageId, labelText) {
@@ -2654,7 +2755,7 @@ function recentTable(cases = state.cases) {
     ]);
   });
   return h("div", { class: "table-wrap" }, h("table", {}, [
-    h("thead", {}, h("tr", {}, ["Date", "Patient Name", "Age/Gender", "Arrival Time", "Door -> CT", "Door -> Groin", "Door -> Recanalisation", "Status"].map((text) => h("th", {}, text)))),
+    h("thead", {}, h("tr", {}, ["Date", "Patient Name", "Age/Gender", "Arrival Time", "Door -> First Imaging", "Door -> Groin", "Door -> Recanalisation", "Status"].map((text) => h("th", {}, text)))),
     h("tbody", {}, rows)
   ]));
 }
@@ -2727,6 +2828,95 @@ function trendChart() {
   ]);
 }
 
+function selectedImagingModalities(item) {
+  if (Array.isArray(item.imagingModalities)) return item.imagingModalities;
+  return [];
+}
+
+function imagingProfile(item) {
+  const selected = selectedImagingModalities(item);
+  if (selected.length) {
+    return {
+      ct: selected.includes("CT Brain") || selected.includes("CT Brain + CT Angiography"),
+      cta: selected.includes("CT Brain + CT Angiography"),
+      mri: selected.includes("MRI Brain Screening") || selected.includes("MRI Brain + MR Angiography"),
+      mra: selected.includes("MRI Brain + MR Angiography")
+    };
+  }
+
+  // Historical cases did not store an imaging-modality selection.
+  const hasCtTiming = ctStages.some(([id]) => Boolean(item.stages?.[id]?.time));
+  const hasMriTiming = mriStages.some(([id]) => Boolean(item.stages?.[id]?.time));
+  return {
+    ct: hasCtTiming || !hasMriTiming,
+    cta: Boolean(stageTime(item, "ctaStarted") || stageTime(item, "ctaCompleted")),
+    mri: hasMriTiming || item.mri?.needed === "Yes",
+    mra: Boolean(stageTime(item, "mraStarted") || stageTime(item, "mraCompleted"))
+  };
+}
+
+function toggleImagingModality(caseId, modality) {
+  const item = state.cases.find((entry) => entry.id === caseId);
+  if (!item || item.caseStopped) return;
+  const selected = new Set(selectedImagingModalities(item));
+  if (selected.has(modality)) selected.delete(modality);
+  else {
+    if (modality.startsWith("CT Brain")) {
+      selected.delete("CT Brain");
+      selected.delete("CT Brain + CT Angiography");
+    }
+    if (modality.startsWith("MRI Brain")) {
+      selected.delete("MRI Brain Screening");
+      selected.delete("MRI Brain + MR Angiography");
+    }
+    selected.add(modality);
+  }
+  item.imagingModalities = imagingModalityOptions.filter((option) => selected.has(option));
+  applyImagingPathway(item);
+  saveCases();
+  render();
+}
+
+function applyImagingPathway(item) {
+  const selected = selectedImagingModalities(item);
+  if (!selected.length) {
+    item.mri = { ...(item.mri || {}), needed: "" };
+    setStagesAutomaticallyApplicable(item, [...ctStages, ...mriStages].map(([id]) => id), true);
+    syncImagingKpiFields(item);
+    return;
+  }
+  const profile = imagingProfile(item);
+  item.mri = { ...(item.mri || {}), needed: profile.mri ? "Yes" : "No" };
+  setStagesAutomaticallyApplicable(item, ctStages.map(([id]) => id), profile.ct);
+  setStagesAutomaticallyApplicable(item, ["ctaStarted", "ctaCompleted"], profile.cta);
+  setStagesAutomaticallyApplicable(item, mriStages.map(([id]) => id), profile.mri);
+  setStagesAutomaticallyApplicable(item, ["mraStarted", "mraCompleted"], profile.mra);
+  syncImagingKpiFields(item);
+}
+
+function setStagesAutomaticallyApplicable(item, stageIds, applicable) {
+  stageIds.forEach((stageId) => {
+    const current = item.stages?.[stageId];
+    if (!applicable) {
+      if (!current?.notApplicable) {
+        item.stages[stageId] = {
+          time: "",
+          notApplicable: true,
+          mode: "na",
+          reason: "Not applicable for selected imaging pathway",
+          previous: current?.time ? current : null
+        };
+      }
+      return;
+    }
+    if (current?.notApplicable) {
+      item.stages[stageId] = current.previous?.time
+        ? { ...current.previous, notApplicable: false, previous: null }
+        : { time: "", mode: "", reason: "", notApplicable: false, previous: null };
+    }
+  });
+}
+
 function updateNested(caseId, group, key, value) {
   const item = state.cases.find((entry) => entry.id === caseId);
   if (!item) return;
@@ -2754,7 +2944,31 @@ function signoffMissingItems(item) {
   if (!["Yes", "No"].includes(item.includeInCodeStrokeKpi || "")) missing.push({ label: "Include in Code Stroke KPI?", type: "kpiInclude" });
   if (!item.patientName || item.patientName === "Unnamed Patient") missing.push({ label: "Patient Name", type: "details" });
   if (!item.suspicion) missing.push({ label: "Stroke Suspicion", type: "details" });
+  if (Array.isArray(item.imagingModalities) && !item.imagingModalities.length) {
+    missing.push({ label: "Decided Imaging Modality", type: "stage", stageId: "dysphagiaScreening", section: "er" });
+  }
   signoffStageRequirements.forEach(([id, label, section]) => {
+    if (!item.stages[id]?.time) missing.push({ label, type: "stage", stageId: id, section });
+  });
+  const profile = imagingProfile(item);
+  const imagingRequirements = [
+    ...(profile.ct ? [
+      ["reachedCt", "Reached CT", "ct"],
+      ["ncctStarted", "First Brain Imaging / NCCT Started", "ct"],
+      ["ncctCompleted", "NCCT Completed", "ct"],
+      ...(profile.cta ? [["ctaStarted", "CT Angiography Started", "ct"], ["ctaCompleted", "CT Angiography Completed", "ct"]] : []),
+      ["imagingReviewed", "CT Imaging Reviewed", "ct"]
+    ] : []),
+    ...(profile.mri ? [
+      ["shiftToMri", "Shift to MRI", "mri"],
+      ["reachedMri", "Reached MRI", "mri"],
+      ["mriStarted", "MRI Started", "mri"],
+      ["mriCompleted", "MRI Completed", "mri"],
+      ...(profile.mra ? [["mraStarted", "MR Angiography Started", "mri"], ["mraCompleted", "MR Angiography Completed", "mri"]] : []),
+      ["mriImagingReviewed", "MRI Imaging Reviewed", "mri"]
+    ] : [])
+  ];
+  imagingRequirements.forEach(([id, label, section]) => {
     if (!item.stages[id]?.time) missing.push({ label, type: "stage", stageId: id, section });
   });
   return missing;
@@ -2762,10 +2976,16 @@ function signoffMissingItems(item) {
 
 function metricMinutes(item, def) {
   if (def?.[0] === "doorIvt" && isIvtSkipped(item)) return null;
-  const start = item.stages[def[2]]?.time;
-  const end = item.stages[def[3]]?.time;
+  const start = metricStageTime(item, def[2]);
+  const end = metricStageTime(item, def[3]);
   if (!start || !end) return null;
   return Math.max(0, Math.round((new Date(end) - new Date(start)) / 60000));
+}
+
+function metricStageTime(item, stageId) {
+  if (stageId === "firstImagingStarted") return firstBrainImagingStartTime(item);
+  if (stageId === "firstImagingReviewed") return firstRecordedTime(item, ["imagingReviewed", "mriImagingReviewed"]);
+  return stageTime(item, stageId);
 }
 
 function metricText(item, id) {
@@ -2817,7 +3037,7 @@ function caseEndTime(item) {
 }
 
 function stageLabel(stageId) {
-  const allStages = [...erStages, ...ctStages, ...mriStages, ...wardStages, ["ivtConsent", "IVT Consent Taken"], ["ivtStarted", "IVT Started / Bolus Given"], ["evtConsent", "EVT Consent Taken"], ...mtStages];
+  const allStages = [...erStages, ...ctStages, ...mriStages, ...wardStages, ["ivtConsent", "IVT Consent Taken"], ["ivtStarted", "IVT Started / Bolus Given"], ["evtConsent", "EVT Consent Taken"], ["mtDecided", "Thrombectomy Decided"], ...mtStages];
   return allStages.find(([id]) => id === stageId)?.[1] || stageId;
 }
 
