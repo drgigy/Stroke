@@ -419,6 +419,13 @@ button {
   background: #fff;
 }
 
+.cases-filter-topline {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+}
+
 .cases-filter-modes {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -437,6 +444,37 @@ button {
 .cases-filter-modes button.active {
   background: var(--purple);
   color: #fff;
+}
+
+.filter-toggle {
+  display: inline-flex;
+  min-height: 34px;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--soft);
+  color: var(--muted);
+  font-size: 0.8rem;
+  font-weight: 900;
+  white-space: nowrap;
+}
+
+.filter-toggle input {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--purple);
+}
+
+.filter-toggle.active {
+  border-color: rgba(181, 18, 27, 0.26);
+  background: #fff1f2;
+  color: var(--purple);
+}
+
+.filter-toggle span {
+  line-height: 1;
 }
 
 .cases-date-range {
@@ -2413,6 +2451,7 @@ th {
   }
 
   .cases-filter-modes,
+  .cases-filter-topline,
   .cases-date-range {
     grid-template-columns: 1fr;
   }

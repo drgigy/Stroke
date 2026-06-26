@@ -237,6 +237,7 @@ let state = {
   kpiRangeStart: dateInputValue(startOfMonth(new Date())),
   kpiRangeEnd: dateInputValue(new Date()),
   casesRangeMode: "month",
+  casesKpiOnly: false,
   casesMonth: monthKey(new Date()),
   casesRangeStart: dateInputValue(startOfMonth(new Date())),
   casesRangeEnd: dateInputValue(new Date()),
@@ -2259,11 +2260,25 @@ function casesScreen() {
 }
 
 function casesFilterPanel() {
+  const allCount = state.casesKpiOnly ? state.cases.filter(isCodeStrokeKpiIncluded).length : state.cases.length;
   return h("div", { class: "cases-filter-panel" }, [
-    h("div", { class: "cases-filter-modes" }, [
-      casesFilterButton("month", "Month"),
-      casesFilterButton("custom", "Custom Range"),
-      casesFilterButton("all", "All Cases")
+    h("div", { class: "cases-filter-topline" }, [
+      h("div", { class: "cases-filter-modes" }, [
+        casesFilterButton("month", "Month"),
+        casesFilterButton("custom", "Custom Range"),
+        casesFilterButton("all", "All Cases")
+      ]),
+      h("label", { class: `filter-toggle ${state.casesKpiOnly ? "active" : ""}` }, [
+        h("input", {
+          type: "checkbox",
+          checked: state.casesKpiOnly,
+          onchange: (event) => {
+            state.casesKpiOnly = event.target.checked;
+            render();
+          }
+        }),
+        h("span", {}, "KPI cases only")
+      ])
     ]),
     state.casesRangeMode === "month"
       ? field("Select month", h("input", {
@@ -2293,7 +2308,7 @@ function casesFilterPanel() {
               }
             }))
           ])
-        : h("div", { class: "cases-filter-summary" }, `${state.cases.length} case${state.cases.length === 1 ? "" : "s"} across all dates`)
+        : h("div", { class: "cases-filter-summary" }, `${allCount} ${state.casesKpiOnly ? "KPI " : ""}case${allCount === 1 ? "" : "s"} across all dates`)
   ]);
 }
 
@@ -2310,18 +2325,20 @@ function casesFilterButton(mode, label) {
 
 function filteredCases() {
   const sorted = [...state.cases].sort((a, b) => new Date(b.arrivalTime) - new Date(a.arrivalTime));
-  if (state.casesRangeMode === "all") return sorted;
+  let visible = sorted;
   if (state.casesRangeMode === "month") {
-    return sorted.filter((item) => monthKey(new Date(item.arrivalTime)) === state.casesMonth);
+    visible = sorted.filter((item) => monthKey(new Date(item.arrivalTime)) === state.casesMonth);
+  } else if (state.casesRangeMode === "custom") {
+    let start = parseDateInput(state.casesRangeStart) || startOfMonth(new Date());
+    let end = parseDateInput(state.casesRangeEnd) || new Date();
+    if (start > end) [start, end] = [end, start];
+    end = endOfDay(end);
+    visible = sorted.filter((item) => {
+      const arrival = new Date(item.arrivalTime);
+      return arrival >= start && arrival <= end;
+    });
   }
-  let start = parseDateInput(state.casesRangeStart) || startOfMonth(new Date());
-  let end = parseDateInput(state.casesRangeEnd) || new Date();
-  if (start > end) [start, end] = [end, start];
-  end = endOfDay(end);
-  return sorted.filter((item) => {
-    const arrival = new Date(item.arrivalTime);
-    return arrival >= start && arrival <= end;
-  });
+  return state.casesKpiOnly ? visible.filter(isCodeStrokeKpiIncluded) : visible;
 }
 
 function moreScreen() {
