@@ -232,6 +232,7 @@ let state = {
   kpiAdminMonth: monthKey(new Date()),
   kpiAdminData: loadKpiAdminData(),
   kpiView: "summary",
+  kpiDrilldownNo: null,
   kpiRangePreset: "month",
   kpiRangeStart: dateInputValue(startOfMonth(new Date())),
   kpiRangeEnd: dateInputValue(new Date()),
@@ -545,13 +546,28 @@ function deviceApprovalScreen() {
 
 function topbar() {
   const active = currentCase();
+  const context = topbarContext();
   return h("header", { class: "topbar" }, [
     h("div", { class: "brand" }, [
       h("div", { class: "brand-mark" }, "SC"),
       h("div", {}, [h("h1", {}, "Rajagiri Stroke Code")])
     ]),
+    context ? h("div", { class: "topbar-context" }, [
+      h("strong", {}, context.title),
+      context.sub ? h("span", {}, context.sub) : null
+    ]) : null,
     active ? h("span", { class: `tag ${caseStatus(active).className}` }, caseStatus(active).label) : null
   ]);
+}
+
+function topbarContext() {
+  if (state.view === "cases") return { title: "Cases" };
+  if (state.view === "dashboard") return { title: "Dashboard" };
+  if (state.view === "kpi") {
+    const range = selectedKpiRange();
+    return { title: "NABH KPI Analysis", sub: `Reporting period: ${formatReportDate(range.start)} to ${formatReportDate(range.end)}` };
+  }
+  return null;
 }
 
 function bottomNav() {
@@ -715,14 +731,15 @@ function timelineScreen() {
 }
 
 function liveTracker(item, placement = "compact") {
+  const imagingLabel = trackerImagingShortLabel(item);
   const trackerSteps = [
     ["arrival", "Door", "ER"],
     ["codeStroke", "Code", "ER"],
     ["neuroInformed", "Neuro", "ER"],
     ["shiftToCt", "To Imaging", "ER"],
-    ["firstImagingReached", "Reached Imaging", "IMG"],
-    ["firstImagingStarted", "First Brain Imaging", "IMG"],
-    ["firstImagingReviewed", "Imaging Reviewed", "IMG"],
+    ["firstImagingReached", "Reached Imaging", imagingLabel],
+    ["firstImagingStarted", "First Brain Imaging", imagingLabel],
+    ["firstImagingReviewed", "Imaging Reviewed", imagingLabel],
     ["ivtStarted", "IVT", "Rx"],
     ["reachedCathlab", "Cathlab", "MT"],
     ["groinPuncture", "Groin", "MT"],
@@ -761,6 +778,18 @@ function liveTracker(item, placement = "compact") {
       ]);
     }))
   ]);
+}
+
+function trackerImagingShortLabel(item) {
+  const profile = imagingProfile(item);
+  if (profile.ct && profile.mri) return "CT/MRI";
+  if (profile.ct) return "CT";
+  if (profile.mri) return "MRI";
+  const selected = selectedImagingModalities(item);
+  if (selected.some((entry) => entry.includes("CT")) && selected.some((entry) => entry.includes("MRI"))) return "CT/MRI";
+  if (selected.some((entry) => entry.includes("CT"))) return "CT";
+  if (selected.some((entry) => entry.includes("MRI"))) return "MRI";
+  return "IMG";
 }
 
 function trackerStageSkipped(item, stageId) {
@@ -1372,8 +1401,8 @@ function kpiScreen() {
   const monthly = monthlyKpiTrend(range.start, range.end, state.selectedKpiNo);
   const singleMonth = monthKey(range.start) === monthKey(range.end);
   if (singleMonth) state.kpiAdminMonth = monthKey(range.start);
+  const drilldown = state.kpiDrilldownNo ? report.find((item) => item.no === state.kpiDrilldownNo) : null;
   return h("section", {}, [
-    title("NABH KPI Analysis", `Reporting period: ${formatReportDate(range.start)} to ${formatReportDate(range.end)}`),
     kpiRangeControls(),
     h("div", { class: "kpi-view-tabs" }, [
       kpiViewButton("summary", "Summary"),
@@ -1391,7 +1420,7 @@ function kpiScreen() {
       : state.kpiView === "reports"
         ? kpiReportsView(report, cases, range)
         : h("div", {}, [
-            heading("NABH KPI Summary"),
+            drilldown ? kpiDrilldownPanel(drilldown, cases, admin) : null,
             h("div", { class: "kpi-report-grid" }, report.map(kpiResultCard))
           ]),
     singleMonth ? kpiAdminPanel(state.kpiAdminMonth, kpiAdminForMonth(state.kpiAdminMonth)) : h("div", { class: "kpi-period-note" }, "Monthly admin inputs are combined automatically across this reporting period. Select a single month to edit them.")
@@ -1443,6 +1472,7 @@ function kpiViewButton(view, label) {
     class: state.kpiView === view ? "active" : "",
     onclick: () => {
       state.kpiView = view;
+      if (view !== "summary") state.kpiDrilldownNo = null;
       render();
     }
   }, label);
@@ -1605,11 +1635,13 @@ function kpiResultCard(result) {
   const width = numericValue == null ? 0 : Math.max(2, Math.min(100, Math.round((numericValue / kpiChartMax(result.no, numericValue)) * 100)));
   return h("button", {
     type: "button",
-    class: "kpi-result-card",
+    class: `kpi-result-card ${state.kpiDrilldownNo === result.no ? "selected" : ""}`,
     onclick: () => {
       state.selectedKpiNo = result.no;
-      state.kpiView = "trends";
+      state.kpiView = "summary";
+      state.kpiDrilldownNo = state.kpiDrilldownNo === result.no ? null : result.no;
       render();
+      requestAnimationFrame(() => document.querySelector(".kpi-drilldown-panel")?.scrollIntoView({ behavior: "smooth", block: "start" }));
     }
   }, [
     h("div", { class: "kpi-result-head" }, [
@@ -1623,6 +1655,154 @@ function kpiResultCard(result) {
       h("span", { class: `tag ${statusClass}` }, result.provisional ? "DATA PENDING" : result.frequency || "Monthly")
     ])
   ]);
+}
+
+function kpiDrilldownPanel(result, cases, admin) {
+  const detail = kpiCaseAudit(result.no, cases, admin);
+  const pending = detail.eligible.filter((item) => !detail.isComplete(item));
+  const completed = detail.eligible.length - pending.length;
+  return h("section", { class: "kpi-drilldown-panel" }, [
+    h("div", { class: "kpi-drilldown-head" }, [
+      h("div", {}, [
+        h("span", {}, `KPI ${result.no}`),
+        h("h2", {}, result.title),
+        h("p", {}, detail.note || `Completed ${completed}/${detail.eligible.length}. Click a patient to open the case.`)
+      ]),
+      h("button", { type: "button", class: "ghost-btn", onclick: () => { state.kpiDrilldownNo = null; render(); } }, "Close")
+    ]),
+    detail.patientLevel === false
+      ? h("div", { class: "complete-panel" }, detail.note || "This KPI is calculated from monthly admin inputs, not individual patient records.")
+      : pending.length
+        ? h("div", { class: "kpi-pending-list" }, pending.map((item, index) => kpiPendingCaseButton(item, index, detail.missingFields(item))))
+        : h("div", { class: "complete-panel" }, detail.eligible.length ? "No pending patient data detected for this KPI." : "No eligible patients in this reporting period.")
+  ]);
+}
+
+function kpiPendingCaseButton(item, index, missingFields) {
+  return h("button", {
+    type: "button",
+    class: "kpi-pending-case",
+    onclick: () => go("timeline", item.id)
+  }, [
+    h("span", { class: "row-number" }, String(index + 1)),
+    h("strong", {}, item.patientName || "Unnamed Patient"),
+    h("em", {}, formatCaseDateTime(item.arrivalTime)),
+    h("small", {}, missingFields.join(", ") || "Required KPI data pending")
+  ]);
+}
+
+function kpiCaseAudit(no, cases, admin) {
+  const ischemicCases = cases.filter((item) => ["Ischemic Stroke", "LVO Suspected"].includes(item.suspicion));
+  const inpatientCases = cases.filter((item) => kpiValue(item, "strokePresentationType") === "Inpatient stroke");
+  const diagnosticCases = cases.filter((item) => kpiValue(item, "diagnosticImagingPerformed") === "Yes" || Boolean(kpiValue(item, "diagnosticImagingStartTime")));
+  const brainImagingCases = cases.filter((item) => kpiValue(item, "diagnosticImagingPerformed") === "Yes" || Boolean(firstBrainImagingStartTime(item)));
+  const ivtCases = cases.filter((item) => item.ivt?.eligible === "Yes" || kpiValue(item, "ivtGiven") === "Yes");
+  const evtCases = cases.filter((item) => kpiValue(item, "evtPerformed") === "Yes" || Boolean(stageTime(item, "groinPuncture")));
+  const carotidCases = cases.filter((item) => kpiValue(item, "ceaPerformed") === "Yes" || kpiValue(item, "carotidAngioplastyStentingPerformed") === "Yes");
+  const angiographyCases = cases.filter((item) => kpiValue(item, "diagnosticAngiographyPerformed") === "Yes");
+  const intracranialCases = cases.filter((item) => kpiValue(item, "intracranialAngioplastyStentingPerformed") === "Yes");
+  const reperfusionCases = ischemicCases.filter((item) =>
+    kpiValue(item, "evtPerformed") === "Yes" ||
+    kpiValue(item, "intraArterialThrombolysis") === "Yes" ||
+    Boolean(item.mt?.tici)
+  );
+  const audit = (eligible, isComplete, missingFields, note = "") => ({ eligible, isComplete, missingFields, note });
+  const answerAudit = (eligible, key, label) => audit(
+    eligible,
+    (item) => ["Yes", "No"].includes(kpiValue(item, key)),
+    (item) => ["Yes", "No"].includes(kpiValue(item, key)) ? [] : [label]
+  );
+  const verifiedAudit = (eligible, key, label, extraComplete = () => true, extraMissing = () => []) => audit(
+    eligible,
+    (item) => ["Yes", "No"].includes(kpiValue(item, key)) && extraComplete(item),
+    (item) => [
+      ...(["Yes", "No"].includes(kpiValue(item, key)) ? [] : [label]),
+      ...extraMissing(item)
+    ]
+  );
+  switch (no) {
+    case 1:
+      return audit(brainImagingCases, (item) => strokeReferenceTime(item) && firstBrainImagingStartTime(item), (item) => [
+        ...missingIf(!strokeReferenceTime(item), "Stroke reference time"),
+        ...missingIf(!firstBrainImagingStartTime(item), "First brain imaging start time")
+      ]);
+    case 2:
+      return audit(ivtCases, (item) => Boolean(stageTime(item, "ivtStarted")) || kpiValue(item, "ivtGiven") === "No", (item) => [
+        ...missingIf(!stageTime(item, "ivtStarted") && kpiValue(item, "ivtGiven") !== "No", "IVT started / IVT not given decision")
+      ]);
+    case 3:
+      return verifiedAudit(ivtCases, "sichAfterIvt", "sICH after IVT", (item) => kpiValue(item, "sichAfterIvt") === "No" || validatedSich(item, "Ivt", stageTime(item, "ivtStarted")) !== null, (item) => kpiValue(item, "sichAfterIvt") === "Yes" && validatedSich(item, "Ivt", stageTime(item, "ivtStarted")) === null ? ["sICH time / NIHSS increase / imaging confirmation"] : []);
+    case 4:
+      return audit(inpatientCases, (item) => kpiValue(item, "strokeRecognitionTime") && stageTime(item, "initialOrders"), (item) => [
+        ...missingIf(!kpiValue(item, "strokeRecognitionTime"), "Stroke recognition time"),
+        ...missingIf(!stageTime(item, "initialOrders"), "Detailed neurological assessment / initial orders")
+      ]);
+    case 5:
+      return answerAudit(cases, "dysphagiaScreening", "Dysphagia screening documented");
+    case 6:
+      return audit(cases, (item) => admissionReferenceTime(item) && kpiValue(item, "physiotherapyAssessmentTime"), (item) => [
+        ...missingIf(!admissionReferenceTime(item), "Admission time"),
+        ...missingIf(!kpiValue(item, "physiotherapyAssessmentTime"), "Rehab assessment time")
+      ]);
+    case 7:
+      return audit(cases.filter((item) => kpiValue(item, "followup90DayCompleted") === "Yes" || kpiValue(item, "mrs90Days") !== ""), (item) => kpiValue(item, "mrs90Days") !== "", () => ["90-day mRS"]);
+    case 8:
+      return verifiedAudit(cases, "medicationError", "Medication error");
+    case 9:
+      return verifiedAudit(cases, "deathInHospital", "Death in hospital", (item) => kpiValue(item, "deathInHospital") === "No" || Boolean(kpiValue(item, "deathTime")), (item) => kpiValue(item, "deathInHospital") === "Yes" && !kpiValue(item, "deathTime") ? ["Death time"] : []);
+    case 10:
+      return verifiedAudit(carotidCases, "strokeDeath30DaysAfterCea", "Stroke/death after CEA/carotid procedure", (item) => kpiValue(item, "strokeDeath30DaysAfterCea") === "No" || verifiedWithinWindow(item, "carotidProcedureTime", "carotidStrokeDeathTime", 30 * 24 * 60) !== null, (item) => kpiValue(item, "strokeDeath30DaysAfterCea") === "Yes" ? ["Carotid procedure time / event time"] : []);
+    case 11:
+      return verifiedAudit(angiographyCases, "strokeDeath24HoursAfterAngiography", "Stroke/death after diagnostic angiography", (item) => kpiValue(item, "strokeDeath24HoursAfterAngiography") === "No" || verifiedWithinWindow(item, "diagnosticAngiographyTime", "diagnosticAngiographyStrokeDeathTime", 24 * 60) !== null, (item) => kpiValue(item, "strokeDeath24HoursAfterAngiography") === "Yes" ? ["Angiography time / event time"] : []);
+    case 12:
+      return verifiedAudit(cases, "pressureUlcerNewWorsening", "Pressure ulcer", (item) => kpiValue(item, "pressureUlcerNewWorsening") === "No" || Boolean(kpiValue(item, "pressureUlcerStage")), (item) => kpiValue(item, "pressureUlcerNewWorsening") === "Yes" && !kpiValue(item, "pressureUlcerStage") ? ["Pressure ulcer stage"] : []);
+    case 13:
+      return answerAudit(cases, "dvtAfterAdmission", "DVT after admission");
+    case 14:
+      return audit(diagnosticCases, (item) => kpiValue(item, "diagnosticImagingPresentationTime") && (kpiValue(item, "diagnosticImagingStartTime") || firstBrainImagingStartTime(item)), (item) => [
+        ...missingIf(!kpiValue(item, "diagnosticImagingPresentationTime"), "Imaging presentation/request time"),
+        ...missingIf(!(kpiValue(item, "diagnosticImagingStartTime") || firstBrainImagingStartTime(item)), "Imaging start time")
+      ]);
+    case 15:
+      return { patientLevel: false, eligible: [], isComplete: () => true, missingFields: () => [], note: "This KPI uses monthly admin inputs: thrombolytic stock-outs and formulary drugs." };
+    case 16:
+      return verifiedAudit(cases, "patientFall", "Patient fall");
+    case 17:
+      return audit(ischemicCases.filter((item) => kpiValue(item, "evtIndicated") === "Yes"), (item) => ["Direct arrival", "Transfer"].includes(kpiValue(item, "evtArrivalType")) && (stageTime(item, "firstPass") || kpiValue(item, "evtPerformed") === "No"), (item) => [
+        ...missingIf(!["Direct arrival", "Transfer"].includes(kpiValue(item, "evtArrivalType")), "EVT arrival type"),
+        ...missingIf(!stageTime(item, "firstPass") && kpiValue(item, "evtPerformed") !== "No", "First pass time / EVT not performed decision")
+      ]);
+    case 18:
+      return verifiedAudit(evtCases, "sichAfterEvt", "sICH after EVT", (item) => kpiValue(item, "sichAfterEvt") === "No" || validatedSich(item, "Evt", stageTime(item, "firstPass") || stageTime(item, "groinPuncture")) !== null, (item) => kpiValue(item, "sichAfterEvt") === "Yes" ? ["sICH time / NIHSS increase / imaging confirmation"] : []);
+    case 19:
+      return audit(cases, (item) => admissionReferenceTime(item) && kpiValue(item, "speechTherapyAssessmentTime"), (item) => [
+        ...missingIf(!admissionReferenceTime(item), "Admission time"),
+        ...missingIf(!kpiValue(item, "speechTherapyAssessmentTime"), "Speech therapy reassessment time")
+      ]);
+    case 20:
+      return verifiedAudit(intracranialCases, "strokeDeath30DaysAfterAngioplastyStenting", "Stroke/death after intracranial procedure", (item) => kpiValue(item, "strokeDeath30DaysAfterAngioplastyStenting") === "No" || verifiedWithinWindow(item, "intracranialProcedureTime", "intracranialStrokeDeathTime", 30 * 24 * 60) !== null, (item) => kpiValue(item, "strokeDeath30DaysAfterAngioplastyStenting") === "Yes" ? ["Intracranial procedure time / event time"] : []);
+    case 21:
+      return answerAudit(ischemicCases.filter((item) => kpiValue(item, "evdInserted") === "Yes"), "ventriculitisAfterEvd", "Ventriculitis after EVD");
+    case 22:
+      return audit(reperfusionCases, (item) => Boolean(item.mt?.tici), () => ["Final TICI score"]);
+    case 23:
+      return audit(cases.filter((item) => kpiValue(item, "largeVesselOcclusion") === "Yes" && (kpiValue(item, "evtPerformed") === "Yes" || Boolean(stageTime(item, "firstPass")))), (item) => stageTime(item, "arrival") && stageTime(item, "firstPass") && item.mt?.tici, (item) => [
+        ...missingIf(!stageTime(item, "firstPass"), "First pass time"),
+        ...missingIf(!item.mt?.tici, "Final TICI score")
+      ]);
+    case 24:
+      return audit(evtCases, (item) => stageTime(item, "groinPuncture") && stageTime(item, "recanalisation") && item.mt?.tici, (item) => [
+        ...missingIf(!stageTime(item, "groinPuncture"), "Groin puncture time"),
+        ...missingIf(!stageTime(item, "recanalisation"), "Recanalisation time"),
+        ...missingIf(!item.mt?.tici, "Final TICI score")
+      ]);
+    default:
+      return audit(cases, () => true, () => []);
+  }
+}
+
+function missingIf(condition, label) {
+  return condition ? [label] : [];
 }
 
 function dualIvtComplianceKpi(cases) {
@@ -2073,9 +2253,8 @@ function diagnosticWaitingMinutes(item) {
 function casesScreen() {
   const cases = filteredCases();
   return h("section", {}, [
-    title("Cases", "Browse observed stroke cases by month or date range."),
     casesFilterPanel(),
-    cases.length ? h("div", { class: "case-list" }, cases.map(caseRow)) : empty("No cases found for the selected period.")
+    cases.length ? h("div", { class: "case-list compact-case-list" }, cases.map((item, index) => caseRow(item, index))) : empty("No cases found for the selected period.")
   ]);
 }
 
@@ -2706,7 +2885,7 @@ function empty(text) {
   return h("div", { class: "empty" }, text);
 }
 
-function caseRow(item) {
+function caseRow(item, index = 0) {
   const status = caseStatus(item);
   const elapsed = formatDuration(caseEndTime(item).getTime() - new Date(item.arrivalTime).getTime());
   const kpiProgress = kpiCompletion(item);
@@ -2723,10 +2902,10 @@ function caseRow(item) {
       }
     }
   }, [
+    h("span", { class: "row-number" }, String(index + 1)),
     h("div", { class: "case-main" }, [
       h("strong", {}, item.patientName),
-      h("span", {}, formatCaseDateTime(item.arrivalTime)),
-      h("span", { class: "case-total-time" }, `Total time: ${elapsed}`)
+      h("span", {}, `${formatCaseDateTime(item.arrivalTime)} | Total time: ${elapsed}`)
     ]),
     h("div", { class: "case-clinical-summary" }, [
       h("span", { class: item.caseComment?.trim() ? "has-comment" : "" }, item.caseComment?.trim() || "No overall comments")
@@ -2791,10 +2970,11 @@ function metricLine(item, def) {
 
 function recentTable(cases = state.cases) {
   if (!cases.length) return empty("No cases recorded for the selected period.");
-  const rows = cases.map((item) => {
+  const rows = cases.map((item, index) => {
     const status = caseStatus(item);
     const performance = performanceStatus(item);
     return h("tr", { class: `performance-row ${performance.className ? `performance-${performance.className}` : "performance-on-track"}` }, [
+      h("td", {}, String(index + 1)),
       h("td", {}, formatReportDate(new Date(item.arrivalTime))),
       h("td", {}, item.patientName),
       h("td", {}, `${item.age || "--"}/${shortGender(item.gender)}`),
@@ -2806,7 +2986,7 @@ function recentTable(cases = state.cases) {
     ]);
   });
   return h("div", { class: "table-wrap" }, h("table", {}, [
-    h("thead", {}, h("tr", {}, ["Date", "Patient Name", "Age/Gender", "Arrival Time", "Door -> First Imaging", "Door -> Groin", "Door -> Recanalisation", "Status"].map((text) => h("th", {}, text)))),
+    h("thead", {}, h("tr", {}, ["#", "Date", "Patient Name", "Age/Gender", "Arrival Time", "Door -> First Imaging", "Door -> Groin", "Door -> Recanalisation", "Status"].map((text) => h("th", {}, text)))),
     h("tbody", {}, rows)
   ]));
 }
@@ -2835,13 +3015,14 @@ function dashboardNotes(cases = state.cases) {
   const rows = cases
     .filter((item) => Object.values(item.stageNotes || {}).some(Boolean) || item.caseComment || item.caseStopped);
   if (!rows.length) return empty("No notes or stopped cases for the selected period.");
-  return h("div", { class: "dashboard-notes" }, rows.map((item) => {
+  return h("div", { class: "dashboard-notes" }, rows.map((item, index) => {
     const stageNotes = Object.entries(item.stageNotes || {}).filter(([, note]) => note);
     const performance = performanceStatus(item);
     const preview = item.caseStopped
       ? `${item.caseStoppedReason || "Stopped"}${item.caseStoppedComment ? ` - ${item.caseStoppedComment}` : ""}`
       : item.caseComment || stageNotes[0]?.[1] || "";
     return h("button", { class: `dashboard-note-row ${performance.className ? `performance-${performance.className}` : "performance-on-track"}`, onclick: () => go("summary", item.id) }, [
+      h("span", { class: "row-number" }, String(index + 1)),
       h("span", {}, formatCaseDateTime(item.arrivalTime)),
       h("strong", {}, item.patientName),
       h("p", {}, preview || "Notes added"),

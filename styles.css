@@ -54,6 +54,30 @@ button {
   padding: 4px 2px 18px;
 }
 
+.topbar-context {
+  display: none;
+  min-width: 0;
+  text-align: center;
+}
+
+.topbar-context strong,
+.topbar-context span {
+  display: block;
+}
+
+.topbar-context strong {
+  color: var(--ink);
+  font-size: 1.05rem;
+  font-weight: 950;
+}
+
+.topbar-context span {
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 850;
+}
+
 .lock-shell {
   display: grid;
   min-height: 100vh;
@@ -301,15 +325,15 @@ button {
 
 .case-list {
   display: grid;
-  gap: 10px;
+  gap: 8px;
 }
 
 .case-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr) minmax(105px, 0.55fr);
+  grid-template-columns: 34px minmax(220px, 1fr) minmax(260px, 1.2fr) minmax(150px, 0.65fr);
   align-items: center;
-  gap: 12px;
-  padding: 14px;
+  gap: 10px;
+  padding: 10px 12px;
   cursor: pointer;
   text-align: left;
   width: 100%;
@@ -329,7 +353,7 @@ button {
 .case-main span,
 .stage-copy span {
   display: block;
-  margin-top: 4px;
+  margin-top: 2px;
   color: var(--muted);
   font-size: 0.86rem;
 }
@@ -345,7 +369,7 @@ button {
 
 .case-clinical-summary {
   min-width: 0;
-  padding: 10px 14px;
+  padding: 6px 12px;
   border-inline: 1px solid var(--line);
   text-align: center;
 }
@@ -360,11 +384,11 @@ button {
 .case-clinical-summary span {
   display: -webkit-box;
   overflow: hidden;
-  margin-top: 6px;
+  margin-top: 0;
   color: var(--muted);
   font-size: 0.82rem;
   font-weight: 700;
-  line-height: 1.35;
+  line-height: 1.25;
   text-align: center;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
@@ -387,9 +411,9 @@ button {
 
 .cases-filter-panel {
   display: grid;
-  gap: 12px;
-  margin: 14px 0;
-  padding: 12px;
+  gap: 8px;
+  margin: 6px 0 10px;
+  padding: 8px;
   border: 1px solid var(--line);
   border-radius: 8px;
   background: #fff;
@@ -402,7 +426,7 @@ button {
 }
 
 .cases-filter-modes button {
-  min-height: 46px;
+  min-height: 34px;
   padding: 6px 8px;
   border-radius: 8px;
   background: var(--soft);
@@ -422,11 +446,36 @@ button {
 }
 
 .cases-filter-summary {
-  padding: 10px 12px;
+  padding: 7px 10px;
   border-radius: 8px;
   background: var(--soft);
   color: var(--muted);
   font-weight: 850;
+}
+
+.cases-filter-panel .field label,
+.kpi-range-panel .field label {
+  margin-bottom: 4px;
+  font-size: 0.74rem;
+}
+
+.cases-filter-panel .field input,
+.kpi-range-panel .field input {
+  min-height: 36px;
+  padding: 0 10px;
+  border-radius: 8px;
+}
+
+.row-number {
+  display: inline-grid;
+  min-width: 26px;
+  height: 26px;
+  place-items: center;
+  border-radius: 999px;
+  background: var(--soft);
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 950;
 }
 
 .kpi-btn {
@@ -1584,11 +1633,11 @@ button {
 
 .dashboard-note-row {
   display: grid;
-  grid-template-columns: 110px 160px minmax(220px, 1fr) auto;
+  grid-template-columns: 34px 145px 160px minmax(220px, 1fr) auto;
   gap: 10px;
   align-items: center;
   width: 100%;
-  padding: 12px;
+  padding: 10px 12px;
   border: 1px solid var(--line);
   border-radius: 8px;
   background: var(--soft);
@@ -1680,7 +1729,7 @@ table {
 
 th,
 td {
-  padding: 13px 12px;
+  padding: 11px 12px;
   border-bottom: 1px solid var(--line);
   text-align: left;
   font-size: 0.88rem;
@@ -1731,15 +1780,15 @@ th {
 
 .kpi-toolbar {
   display: grid;
-  gap: 12px;
-  margin: 8px 0 18px;
+  gap: 8px;
+  margin: 6px 0 12px;
 }
 
 .kpi-range-panel {
   display: grid;
-  gap: 12px;
-  margin: 14px 0;
-  padding: 12px;
+  gap: 8px;
+  margin: 6px 0 10px;
+  padding: 8px;
   border: 1px solid var(--line);
   border-radius: 8px;
   background: #fff;
@@ -1759,7 +1808,7 @@ th {
 
 .kpi-range-presets button,
 .kpi-view-tabs button {
-  min-height: 44px;
+  min-height: 34px;
   padding: 6px 8px;
   border-radius: 8px;
   background: var(--soft);
@@ -1787,14 +1836,86 @@ th {
 
 .kpi-result-card {
   display: grid;
-  gap: 12px;
-  padding: 14px;
+  gap: 10px;
+  padding: 12px;
   border: 1px solid var(--line);
   border-radius: 8px;
   background: #fff;
   box-shadow: 0 8px 26px rgba(45, 48, 70, 0.055);
   color: var(--ink);
   text-align: left;
+}
+
+.kpi-result-card.selected {
+  border-color: rgba(181, 18, 27, 0.45);
+  background: #fff8f8;
+}
+
+.kpi-drilldown-panel {
+  display: grid;
+  gap: 10px;
+  margin: 0 0 14px;
+  padding: 12px;
+  border: 1px solid rgba(181, 18, 27, 0.24);
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: 0 8px 26px rgba(45, 48, 70, 0.055);
+}
+
+.kpi-drilldown-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: start;
+}
+
+.kpi-drilldown-head span {
+  color: var(--muted);
+  font-size: 0.74rem;
+  font-weight: 950;
+  text-transform: uppercase;
+}
+
+.kpi-drilldown-head h2 {
+  margin: 2px 0;
+  font-size: 1rem;
+}
+
+.kpi-drilldown-head p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.84rem;
+  font-weight: 750;
+}
+
+.kpi-pending-list {
+  display: grid;
+  gap: 8px;
+}
+
+.kpi-pending-case {
+  display: grid;
+  grid-template-columns: 34px minmax(150px, 0.8fr) minmax(140px, 0.65fr) minmax(220px, 1fr);
+  gap: 10px;
+  align-items: center;
+  padding: 10px;
+  border: 1px solid #ffd2d6;
+  border-radius: 8px;
+  background: #fff8f8;
+  color: var(--ink);
+  text-align: left;
+}
+
+.kpi-pending-case strong {
+  font-size: 0.9rem;
+}
+
+.kpi-pending-case em,
+.kpi-pending-case small {
+  color: var(--muted);
+  font-size: 0.8rem;
+  font-style: normal;
+  font-weight: 850;
 }
 
 .kpi-result-head {
@@ -2174,7 +2295,7 @@ th {
   }
 
   .kpi-toolbar {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(4, minmax(0, 1fr));
     align-items: end;
   }
 
@@ -2183,8 +2304,22 @@ th {
   }
 
   .kpi-range-panel {
-    grid-template-columns: minmax(360px, 1fr) minmax(300px, 0.8fr);
+    grid-template-columns: minmax(340px, 0.95fr) minmax(280px, 0.65fr);
     align-items: end;
+  }
+
+  .topbar {
+    display: grid;
+    grid-template-columns: minmax(260px, 1fr) minmax(260px, 1fr) minmax(120px, 1fr);
+  }
+
+  .topbar-context {
+    display: block;
+    justify-self: center;
+  }
+
+  .topbar > .tag {
+    justify-self: end;
   }
 
   .kpi-export-grid {
@@ -2242,10 +2377,11 @@ th {
 
   .case-row {
     align-items: flex-start;
-    grid-template-columns: 1fr;
+    grid-template-columns: 30px minmax(0, 1fr);
   }
 
   .case-clinical-summary {
+    grid-column: 2;
     justify-self: stretch;
     border: 0;
     padding: 8px 10px;
@@ -2254,6 +2390,7 @@ th {
   }
 
   .case-row-actions {
+    grid-column: 2;
     align-items: flex-start;
     flex-direction: row;
     justify-content: flex-start;
@@ -2278,6 +2415,17 @@ th {
   .cases-filter-modes,
   .cases-date-range {
     grid-template-columns: 1fr;
+  }
+
+  .dashboard-note-row,
+  .kpi-pending-case {
+    grid-template-columns: 30px 1fr;
+  }
+
+  .dashboard-note-row p,
+  .dashboard-note-row em,
+  .kpi-pending-case small {
+    grid-column: 2;
   }
 
   .kpi-range-presets {
