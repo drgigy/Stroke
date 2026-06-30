@@ -238,6 +238,8 @@ let state = {
   kpiRangeEnd: dateInputValue(new Date()),
   casesRangeMode: "month",
   casesKpiOnly: false,
+  casesIvtOnly: false,
+  casesMtOnly: false,
   casesMonth: monthKey(new Date()),
   casesRangeStart: dateInputValue(startOfMonth(new Date())),
   casesRangeEnd: dateInputValue(new Date()),
@@ -1708,6 +1710,19 @@ function kpiCaseAudit(no, cases, admin) {
     Boolean(item.mt?.tici)
   );
   const audit = (eligible, isComplete, missingFields, note = "") => ({ eligible, isComplete, missingFields, note });
+  const timingAudit = (eligible, startFn, endFn, startLabel, endLabel) => audit(
+    eligible,
+    (item) => minutesBetween(startFn(item), endFn(item)) != null,
+    (item) => {
+      const start = startFn(item);
+      const end = endFn(item);
+      return [
+        ...missingIf(!start, startLabel),
+        ...missingIf(!end, endLabel),
+        ...missingIf(Boolean(start && end && minutesBetween(start, end) == null), `Invalid or reversed time: ${startLabel} -> ${endLabel}`)
+      ];
+    }
+  );
   const answerAudit = (eligible, key, label) => audit(
     eligible,
     (item) => ["Yes", "No"].includes(kpiValue(item, key)),
@@ -1723,10 +1738,13 @@ function kpiCaseAudit(no, cases, admin) {
   );
   switch (no) {
     case 1:
-      return audit(brainImagingCases, (item) => strokeReferenceTime(item) && firstBrainImagingStartTime(item), (item) => [
-        ...missingIf(!strokeReferenceTime(item), "Stroke reference time"),
-        ...missingIf(!firstBrainImagingStartTime(item), "First brain imaging start time")
-      ]);
+      return timingAudit(
+        brainImagingCases,
+        strokeReferenceTime,
+        firstBrainImagingStartTime,
+        "Stroke reference time",
+        "First brain imaging start time"
+      );
     case 2:
       return audit(ivtCases, (item) => Boolean(stageTime(item, "ivtStarted")) || kpiValue(item, "ivtGiven") === "No", (item) => [
         ...missingIf(!stageTime(item, "ivtStarted") && kpiValue(item, "ivtGiven") !== "No", "IVT started / IVT not given decision")
@@ -1734,10 +1752,13 @@ function kpiCaseAudit(no, cases, admin) {
     case 3:
       return verifiedAudit(ivtCases, "sichAfterIvt", "sICH after IVT", (item) => kpiValue(item, "sichAfterIvt") === "No" || validatedSich(item, "Ivt", stageTime(item, "ivtStarted")) !== null, (item) => kpiValue(item, "sichAfterIvt") === "Yes" && validatedSich(item, "Ivt", stageTime(item, "ivtStarted")) === null ? ["sICH time / NIHSS increase / imaging confirmation"] : []);
     case 4:
-      return audit(inpatientCases, (item) => kpiValue(item, "strokeRecognitionTime") && stageTime(item, "initialOrders"), (item) => [
-        ...missingIf(!kpiValue(item, "strokeRecognitionTime"), "Stroke recognition time"),
-        ...missingIf(!stageTime(item, "initialOrders"), "Detailed neurological assessment / initial orders")
-      ]);
+      return timingAudit(
+        inpatientCases,
+        (item) => kpiValue(item, "strokeRecognitionTime"),
+        (item) => stageTime(item, "initialOrders"),
+        "Stroke recognition time",
+        "Detailed neurological assessment / initial orders"
+      );
     case 5:
       return answerAudit(cases, "dysphagiaScreening", "Dysphagia screening documented");
     case 6:
@@ -2009,6 +2030,15 @@ function isCodeStrokeKpiIncluded(item) {
   return item.includeInCodeStrokeKpi === "Yes";
 }
 
+function isIvtTreatmentCase(item) {
+  return kpiValue(item, "ivtGiven") === "Yes" || Boolean(stageTime(item, "ivtStarted"));
+}
+
+function isMechanicalThrombectomyCase(item) {
+  return kpiValue(item, "evtPerformed") === "Yes" ||
+    Boolean(stageTime(item, "groinPuncture") || stageTime(item, "firstPass") || stageTime(item, "recanalisation"));
+}
+
 function kpiIncludedCases(cases) {
   return cases.filter(isCodeStrokeKpiIncluded);
 }
@@ -2075,6 +2105,10 @@ function dateInputValue(date) {
 
 function formatReportDate(date) {
   return date.toLocaleDateString([], { day: "2-digit", month: "short", year: "numeric" });
+}
+
+function formatCompactDate(date) {
+  return `${date.getDate()}/${date.getMonth() + 1}/${String(date.getFullYear()).slice(-2)}`;
 }
 
 function kpiResultNumeric(result) {
@@ -2255,12 +2289,12 @@ function casesScreen() {
   const cases = filteredCases();
   return h("section", {}, [
     casesFilterPanel(),
-    cases.length ? h("div", { class: "case-list compact-case-list" }, cases.map((item, index) => caseRow(item, index))) : empty("No cases found for the selected period.")
+    cases.length ? h("div", { class: "case-list compact-case-list" }, cases.map((item, index) => caseRow(item, cases.length - index))) : empty("No cases found for the selected period.")
   ]);
 }
 
 function casesFilterPanel() {
-  const allCount = state.casesKpiOnly ? state.cases.filter(isCodeStrokeKpiIncluded).length : state.cases.length;
+  const allCount = applyCasesClinicalFilters(state.cases).length;
   return h("div", { class: "cases-filter-panel" }, [
     h("div", { class: "cases-filter-topline" }, [
       h("div", { class: "cases-filter-modes" }, [
@@ -2268,16 +2302,10 @@ function casesFilterPanel() {
         casesFilterButton("custom", "Custom Range"),
         casesFilterButton("all", "All Cases")
       ]),
-      h("label", { class: `filter-toggle ${state.casesKpiOnly ? "active" : ""}` }, [
-        h("input", {
-          type: "checkbox",
-          checked: state.casesKpiOnly,
-          onchange: (event) => {
-            state.casesKpiOnly = event.target.checked;
-            render();
-          }
-        }),
-        h("span", {}, "KPI cases only")
+      h("div", { class: "cases-filter-toggles" }, [
+        casesClinicalFilterToggle("casesKpiOnly", "KPI cases"),
+        casesClinicalFilterToggle("casesIvtOnly", "IVT cases"),
+        casesClinicalFilterToggle("casesMtOnly", "MT cases")
       ])
     ]),
     state.casesRangeMode === "month"
@@ -2308,7 +2336,21 @@ function casesFilterPanel() {
               }
             }))
           ])
-        : h("div", { class: "cases-filter-summary" }, `${allCount} ${state.casesKpiOnly ? "KPI " : ""}case${allCount === 1 ? "" : "s"} across all dates`)
+        : h("div", { class: "cases-filter-summary" }, `${allCount} matching case${allCount === 1 ? "" : "s"} across all dates`)
+  ]);
+}
+
+function casesClinicalFilterToggle(stateKey, label) {
+  return h("label", { class: `filter-toggle ${state[stateKey] ? "active" : ""}` }, [
+    h("input", {
+      type: "checkbox",
+      checked: state[stateKey],
+      onchange: (event) => {
+        state[stateKey] = event.target.checked;
+        render();
+      }
+    }),
+    h("span", {}, label)
   ]);
 }
 
@@ -2338,7 +2380,15 @@ function filteredCases() {
       return arrival >= start && arrival <= end;
     });
   }
-  return state.casesKpiOnly ? visible.filter(isCodeStrokeKpiIncluded) : visible;
+  return applyCasesClinicalFilters(visible);
+}
+
+function applyCasesClinicalFilters(cases) {
+  return cases.filter((item) =>
+    (!state.casesKpiOnly || isCodeStrokeKpiIncluded(item)) &&
+    (!state.casesIvtOnly || isIvtTreatmentCase(item)) &&
+    (!state.casesMtOnly || isMechanicalThrombectomyCase(item))
+  );
 }
 
 function moreScreen() {
@@ -2603,7 +2653,10 @@ function syncStageToKpi(item, stageId, time) {
   };
   const timestampKey = timestampMap[stageId];
   item.kpi = { ...defaultKpiData(), ...(item.kpi || {}) };
-  if (timestampKey) item.kpi[timestampKey] = time;
+  if (timestampKey) {
+    item.kpi[timestampKey] = time;
+    if (item.kpiFieldStatus) delete item.kpiFieldStatus[timestampKey];
+  }
   if (stageId === "dysphagiaScreening") item.kpi.dysphagiaScreening = "Yes";
   if (["ncctStarted", "mriStarted"].includes(stageId)) syncImagingKpiFields(item);
   if (stageId === "ivtStarted") item.kpi.ivtGiven = "Yes";
@@ -2616,6 +2669,7 @@ function syncImagingKpiFields(item) {
   if (firstImagingStart) {
     item.kpi.diagnosticImagingStartTime = firstImagingStart;
     item.kpi.diagnosticImagingPerformed = "Yes";
+    if (item.kpiFieldStatus) delete item.kpiFieldStatus.diagnosticImagingStartTime;
   }
 }
 
@@ -2743,12 +2797,30 @@ function kpiModal() {
         event.preventDefault();
         const form = new FormData(event.currentTarget);
         item.kpi = { ...defaultKpiData(), ...(item.kpi || {}) };
+        item.kpiFieldStatus = { ...(item.kpiFieldStatus || {}) };
+        const presentationType = form.get("strokePresentationType") || kpiValue(item, "strokePresentationType");
         kpiTimestampFields.forEach(([key]) => {
           const value = form.get(key);
-          item.kpi[key] = value ? new Date(value).toISOString() : "";
+          const notApplicable = key === "strokeRecognitionTime"
+            ? presentationType !== "Inpatient stroke"
+            : form.get(`${key}__status`) === "na";
+          if (notApplicable) {
+            item.kpi[key] = "";
+            item.kpiFieldStatus[key] = "na";
+          } else {
+            item.kpi[key] = value ? new Date(value).toISOString() : "";
+            delete item.kpiFieldStatus[key];
+          }
         });
         [...kpiYesNoFields.filter(([key]) => !workflowKpiKeys.has(key)), ...kpiScoreFields, ...kpiNumberFields].forEach(([key]) => {
-          item.kpi[key] = form.get(key) || "";
+          const value = form.get(key) || "";
+          if (key === "mrs90Days" && value === "Pending") {
+            item.kpi[key] = "";
+            item.kpiFieldStatus[key] = "pending";
+          } else {
+            item.kpi[key] = value;
+            if (key === "mrs90Days") delete item.kpiFieldStatus[key];
+          }
         });
         item.kpiUpdatedAt = new Date().toISOString();
         saveCases();
@@ -2764,12 +2836,16 @@ function kpiModal() {
         h("span", { class: "tag grey" }, `${progress.completed}/${progress.total}`)
       ]),
       h("div", { class: "kpi-scroll" }, [
-        kpiSection("Timestamp Fields", kpiTimestampFields.map(([key, label]) => field(label, h("input", { type: "datetime-local", name: key, value: kpiLocalValue(kpi[key]) })))),
+        kpiSection("Timestamp Fields", kpiTimestampFields.map(([key, label]) => kpiTimestampField(item, kpi, key, label))),
         kpiSection("Treatment and Outcome Fields", kpiYesNoFields
           .filter(([key]) => !workflowKpiKeys.has(key))
           .map(([key, label]) => field(label, choiceButtons(key, kpiAnswerOptions, kpi[key] || "")))),
         kpiSection("Event Counts", kpiNumberFields.map(([key, label, minimum]) => field(label, h("input", { type: "number", name: key, min: minimum, value: kpi[key] || "0" })))),
-        kpiSection("Score Fields", kpiScoreFields.map(([key, label, options]) => field(label, select(key, options, kpi[key]))))
+        kpiSection("Score Fields", kpiScoreFields.map(([key, label, options]) => {
+          const fieldOptions = key === "mrs90Days" ? [...options, "Pending"] : options;
+          const value = key === "mrs90Days" && kpiFieldStatus(item, key) === "pending" ? "Pending" : kpi[key];
+          return field(label, select(key, fieldOptions, value));
+        }))
       ]),
       h("div", { class: "modal-actions" }, [
         h("button", { type: "button", class: "secondary-btn", onclick: () => { state.kpiTarget = null; render(); } }, "CANCEL"),
@@ -2777,6 +2853,44 @@ function kpiModal() {
       ])
     ])
   ]);
+}
+
+function kpiTimestampField(item, kpi, key, label) {
+  const inpatientRecognition = key === "strokeRecognitionTime" && kpiValue(item, "strokePresentationType") === "Inpatient stroke";
+  const automaticNotApplicable = key === "strokeRecognitionTime" && !inpatientRecognition;
+  const notApplicable = automaticNotApplicable || kpiFieldStatus(item, key) === "na";
+  return h("div", { class: "field kpi-timestamp-field" }, [
+    h("label", {}, label),
+    h("div", { class: "kpi-timestamp-control" }, [
+      h("input", {
+        type: "datetime-local",
+        name: key,
+        value: notApplicable ? "" : kpiLocalValue(kpi[key]),
+        disabled: notApplicable
+      }),
+      h("input", { type: "hidden", name: `${key}__status`, value: notApplicable ? "na" : "" }),
+      h("button", {
+        type: "button",
+        class: `kpi-na-btn ${notApplicable ? "active" : ""}`,
+        disabled: inpatientRecognition,
+        "aria-pressed": notApplicable ? "true" : "false",
+        onclick: toggleKpiTimestampNotApplicable
+      }, inpatientRecognition ? "Required" : "Not Applicable")
+    ])
+  ]);
+}
+
+function toggleKpiTimestampNotApplicable(event) {
+  const button = event.currentTarget;
+  const control = button.closest(".kpi-timestamp-control");
+  const input = control.querySelector("input[type='datetime-local']");
+  const status = control.querySelector("input[type='hidden']");
+  const active = status.value === "na";
+  status.value = active ? "" : "na";
+  input.disabled = !active;
+  if (!active) input.value = "";
+  button.classList.toggle("active", !active);
+  button.setAttribute("aria-pressed", active ? "false" : "true");
 }
 
 function kpiSection(label, children) {
@@ -2902,7 +3016,7 @@ function empty(text) {
   return h("div", { class: "empty" }, text);
 }
 
-function caseRow(item, index = 0) {
+function caseRow(item, displayNumber = 1) {
   const status = caseStatus(item);
   const elapsed = formatDuration(caseEndTime(item).getTime() - new Date(item.arrivalTime).getTime());
   const kpiProgress = kpiCompletion(item);
@@ -2919,7 +3033,7 @@ function caseRow(item, index = 0) {
       }
     }
   }, [
-    h("span", { class: "row-number" }, String(index + 1)),
+    h("span", { class: "row-number" }, String(displayNumber)),
     h("div", { class: "case-main" }, [
       h("strong", {}, item.patientName),
       h("span", {}, `${formatCaseDateTime(item.arrivalTime)} | Total time: ${elapsed}`)
@@ -2949,6 +3063,11 @@ function defaultKpiData() {
   }, {});
 }
 
+function kpiFieldStatus(item, key) {
+  if (key === "strokeRecognitionTime" && kpiValue(item, "strokePresentationType") !== "Inpatient stroke") return "na";
+  return item.kpiFieldStatus?.[key] || "";
+}
+
 function ensureKpiData(item) {
   const existing = item.kpi || {};
   const derived = derivedKpiData(item);
@@ -2960,14 +3079,13 @@ function ensureKpiData(item) {
 }
 
 function kpiCompletion(item) {
-  const data = Object.keys(defaultKpiData()).reduce((values, key) => {
-    values[key] = kpiValue(item, key);
-    return values;
-  }, {});
-  const values = Object.values(data);
+  const keys = Object.keys(defaultKpiData());
   return {
-    completed: values.filter((value) => value !== "" && value != null).length,
-    total: values.length
+    completed: keys.filter((key) => {
+      const value = kpiValue(item, key);
+      return (value !== "" && value != null) || ["na", "pending"].includes(kpiFieldStatus(item, key));
+    }).length,
+    total: keys.length
   };
 }
 
@@ -2988,24 +3106,34 @@ function metricLine(item, def) {
 function recentTable(cases = state.cases) {
   if (!cases.length) return empty("No cases recorded for the selected period.");
   const rows = cases.map((item, index) => {
-    const status = caseStatus(item);
     const performance = performanceStatus(item);
     return h("tr", { class: `performance-row ${performance.className ? `performance-${performance.className}` : "performance-on-track"}` }, [
-      h("td", {}, String(index + 1)),
-      h("td", {}, formatReportDate(new Date(item.arrivalTime))),
+      h("td", {}, String(cases.length - index)),
+      h("td", {}, formatCompactDate(new Date(item.arrivalTime))),
       h("td", {}, item.patientName),
       h("td", {}, `${item.age || "--"}/${shortGender(item.gender)}`),
       h("td", {}, formatClock(item.arrivalTime)),
-      h("td", {}, metricText(item, "doorCt")),
+      h("td", {}, dashboardImagingTime(item, "ct")),
+      h("td", {}, dashboardImagingTime(item, "mri")),
+      h("td", {}, isIvtSkipped(item) ? "N/A" : metricText(item, "doorIvt")),
       h("td", {}, metricText(item, "doorGroin")),
       h("td", {}, metricText(item, "doorRecan")),
-      h("td", {}, h("span", { class: `tag ${status.className}` }, status.label))
+      h("td", {}, metricText(item, "groinRecan"))
     ]);
   });
-  return h("div", { class: "table-wrap" }, h("table", {}, [
-    h("thead", {}, h("tr", {}, ["#", "Date", "Patient Name", "Age/Gender", "Arrival Time", "Door -> First Imaging", "Door -> Groin", "Door -> Recanalisation", "Status"].map((text) => h("th", {}, text)))),
+  return h("div", { class: "table-wrap" }, h("table", { class: "dashboard-case-table" }, [
+    h("thead", {}, h("tr", {}, ["#", "Date", "Name", "Age/Sex", "AT", "D -> CT", "D -> MRI", "D -> IVT", "D -> GR", "D -> RE", "G -> RE"].map((text) => h("th", {}, text)))),
     h("tbody", {}, rows)
   ]));
+}
+
+function dashboardImagingTime(item, modality) {
+  const profile = imagingProfile(item);
+  const applicable = modality === "ct" ? profile.ct : profile.mri;
+  if (!applicable) return "N/A";
+  const reachedTime = stageTime(item, modality === "ct" ? "reachedCt" : "reachedMri");
+  const minutes = minutesBetween(stageTime(item, "arrival"), reachedTime);
+  return minutes == null ? "--" : `${minutes} min`;
 }
 
 function notesPanel(item) {
@@ -3039,7 +3167,7 @@ function dashboardNotes(cases = state.cases) {
       ? `${item.caseStoppedReason || "Stopped"}${item.caseStoppedComment ? ` - ${item.caseStoppedComment}` : ""}`
       : item.caseComment || stageNotes[0]?.[1] || "";
     return h("button", { class: `dashboard-note-row ${performance.className ? `performance-${performance.className}` : "performance-on-track"}`, onclick: () => go("summary", item.id) }, [
-      h("span", { class: "row-number" }, String(index + 1)),
+      h("span", { class: "row-number" }, String(rows.length - index)),
       h("span", {}, formatCaseDateTime(item.arrivalTime)),
       h("strong", {}, item.patientName),
       h("p", {}, preview || "Notes added"),
