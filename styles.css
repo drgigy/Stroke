@@ -46,6 +46,10 @@ button {
   padding: 18px 14px 96px;
 }
 
+.app-shell.dashboard-wide {
+  width: min(100%, 1480px);
+}
+
 .topbar {
   display: flex;
   align-items: center;
@@ -1816,7 +1820,13 @@ table {
 .dashboard-case-table th,
 .dashboard-case-table td {
   padding: 9px 8px;
+  border-right: 1px solid var(--line);
   white-space: nowrap;
+}
+
+.dashboard-case-table th:last-child,
+.dashboard-case-table td:last-child {
+  border-right: 0;
 }
 
 .dashboard-case-table th {
@@ -1826,8 +1836,25 @@ table {
 
 .dashboard-case-table th:nth-child(3),
 .dashboard-case-table td:nth-child(3) {
-  min-width: 140px;
+  min-width: 180px;
   white-space: normal;
+}
+
+.dashboard-patient-identity {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+}
+
+.dashboard-patient-identity strong {
+  color: var(--ink);
+}
+
+.dashboard-patient-identity small {
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 800;
+  white-space: nowrap;
 }
 
 th,

@@ -246,6 +246,9 @@ let state = {
   dashboardCasesRangeMode: "month",
   dashboardCasesRangeStart: dateInputValue(startOfMonth(new Date())),
   dashboardCasesRangeEnd: dateInputValue(new Date()),
+  dashboardKpiOnly: false,
+  dashboardIvtOnly: false,
+  dashboardMtOnly: false,
   dashboardNotesRangeMode: "month",
   dashboardNotesRangeStart: dateInputValue(startOfMonth(new Date())),
   dashboardNotesRangeEnd: dateInputValue(new Date()),
@@ -517,7 +520,7 @@ function render() {
     app.appendChild(h("main", { class: "app-shell lock-shell" }, deviceApprovalScreen()));
     return;
   }
-  app.appendChild(h("main", { class: "app-shell" }, [topbar(), screen(), bottomNav(), manualModal(), noteModal(), stopModal(), kpiModal()]));
+  app.appendChild(h("main", { class: `app-shell ${state.view === "dashboard" ? "dashboard-wide" : ""}` }, [topbar(), screen(), bottomNav(), manualModal(), noteModal(), stopModal(), kpiModal()]));
 }
 
 function deviceApprovalScreen() {
@@ -1331,10 +1334,19 @@ function dashboardRangePanel(section) {
   const startKey = section === "cases" ? "dashboardCasesRangeStart" : "dashboardNotesRangeStart";
   const endKey = section === "cases" ? "dashboardCasesRangeEnd" : "dashboardNotesRangeEnd";
   return h("div", { class: "cases-filter-panel dashboard-filter-panel" }, [
-    h("div", { class: "cases-filter-modes" }, [
-      dashboardRangeButton(modeKey, "month", "This Month"),
-      dashboardRangeButton(modeKey, "custom", "Custom Range"),
-      dashboardRangeButton(modeKey, "all", "All")
+    h("div", { class: "cases-filter-topline" }, [
+      h("div", { class: "cases-filter-modes" }, [
+        dashboardRangeButton(modeKey, "month", "This Month"),
+        dashboardRangeButton(modeKey, "custom", "Custom Range"),
+        dashboardRangeButton(modeKey, "all", "All")
+      ]),
+      section === "cases"
+        ? h("div", { class: "cases-filter-toggles" }, [
+            casesClinicalFilterToggle("dashboardKpiOnly", "KPI cases"),
+            casesClinicalFilterToggle("dashboardIvtOnly", "IVT cases"),
+            casesClinicalFilterToggle("dashboardMtOnly", "MT cases")
+          ])
+        : null
     ]),
     state[modeKey] === "custom"
       ? h("div", { class: "cases-date-range" }, [
@@ -1375,19 +1387,31 @@ function dashboardFilteredCases(section) {
   const startValue = section === "cases" ? state.dashboardCasesRangeStart : state.dashboardNotesRangeStart;
   const endValue = section === "cases" ? state.dashboardCasesRangeEnd : state.dashboardNotesRangeEnd;
   const sorted = [...state.cases].sort((a, b) => new Date(b.arrivalTime) - new Date(a.arrivalTime));
-  if (mode === "all") return sorted;
-  if (mode === "month") {
+  let visible = sorted;
+  if (mode === "all") {
+    visible = sorted;
+  } else if (mode === "month") {
     const currentMonth = monthKey(new Date());
-    return sorted.filter((item) => monthKey(new Date(item.arrivalTime)) === currentMonth);
+    visible = sorted.filter((item) => monthKey(new Date(item.arrivalTime)) === currentMonth);
+  } else {
+    let start = parseDateInput(startValue) || startOfMonth(new Date());
+    let end = parseDateInput(endValue) || new Date();
+    if (start > end) [start, end] = [end, start];
+    end = endOfDay(end);
+    visible = sorted.filter((item) => {
+      const arrival = new Date(item.arrivalTime);
+      return arrival >= start && arrival <= end;
+    });
   }
-  let start = parseDateInput(startValue) || startOfMonth(new Date());
-  let end = parseDateInput(endValue) || new Date();
-  if (start > end) [start, end] = [end, start];
-  end = endOfDay(end);
-  return sorted.filter((item) => {
-    const arrival = new Date(item.arrivalTime);
-    return arrival >= start && arrival <= end;
-  });
+  return section === "cases" ? applyDashboardClinicalFilters(visible) : visible;
+}
+
+function applyDashboardClinicalFilters(cases) {
+  return cases.filter((item) =>
+    (!state.dashboardKpiOnly || isCodeStrokeKpiIncluded(item)) &&
+    (!state.dashboardIvtOnly || isIvtTreatmentCase(item)) &&
+    (!state.dashboardMtOnly || isMechanicalThrombectomyCase(item))
+  );
 }
 
 function formatMonthLabel(date) {
@@ -3110,7 +3134,10 @@ function recentTable(cases = state.cases) {
     return h("tr", { class: `performance-row ${performance.className ? `performance-${performance.className}` : "performance-on-track"}` }, [
       h("td", {}, String(cases.length - index)),
       h("td", {}, formatCompactDate(new Date(item.arrivalTime))),
-      h("td", {}, item.patientName),
+      h("td", {}, h("span", { class: "dashboard-patient-identity" }, [
+        h("strong", {}, item.patientName),
+        h("small", {}, item.uhid?.trim() || "--")
+      ])),
       h("td", {}, `${item.age || "--"}/${shortGender(item.gender)}`),
       h("td", {}, formatClock(item.arrivalTime)),
       h("td", {}, dashboardImagingTime(item, "ct")),
