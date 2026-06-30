@@ -7,6 +7,7 @@ const ACCESS_SETTINGS_KEY = "rajagiri-strokecode-access-v1";
 const KPI_ADMIN_KEY = "rajagiri-strokecode-kpi-admin-v1";
 const FIRESTORE_COLLECTION = "strokeCases";
 const DEVICE_COLLECTION = "deviceApprovals";
+const DASHBOARD_PRINT_PAGE_SIZE = 15;
 const defaultAccessSettings = {
   centreName: "Rajagiri Hospital",
   adminPin: "9999",
@@ -1320,16 +1321,18 @@ function handlePendingClick(caseId, entry) {
 }
 
 function dashboardScreen() {
+  const tableCases = dashboardFilteredCases("cases");
   return h("section", {}, [
-    dashboardRangePanel("cases"),
-    recentTable(dashboardFilteredCases("cases")),
+    dashboardRangePanel("cases", tableCases),
+    recentTable(tableCases),
+    dashboardPrintPages(tableCases),
     heading("Case Notes / Stop Reasons"),
     dashboardRangePanel("notes"),
     dashboardNotes(dashboardFilteredCases("notes"))
   ]);
 }
 
-function dashboardRangePanel(section) {
+function dashboardRangePanel(section, cases = []) {
   const modeKey = section === "cases" ? "dashboardCasesRangeMode" : "dashboardNotesRangeMode";
   const startKey = section === "cases" ? "dashboardCasesRangeStart" : "dashboardNotesRangeStart";
   const endKey = section === "cases" ? "dashboardCasesRangeEnd" : "dashboardNotesRangeEnd";
@@ -1344,7 +1347,13 @@ function dashboardRangePanel(section) {
         ? h("div", { class: "cases-filter-toggles" }, [
             casesClinicalFilterToggle("dashboardKpiOnly", "KPI cases"),
             casesClinicalFilterToggle("dashboardIvtOnly", "IVT cases"),
-            casesClinicalFilterToggle("dashboardMtOnly", "MT cases")
+            casesClinicalFilterToggle("dashboardMtOnly", "MT cases"),
+            h("button", {
+              type: "button",
+              class: "dashboard-print-btn",
+              disabled: !cases.length,
+              onclick: () => window.print()
+            }, "PRINT TABLE")
           ])
         : null
     ]),
@@ -3129,29 +3138,46 @@ function metricLine(item, def) {
 
 function recentTable(cases = state.cases) {
   if (!cases.length) return empty("No cases recorded for the selected period.");
-  const rows = cases.map((item, index) => {
-    const performance = performanceStatus(item);
-    return h("tr", { class: `performance-row ${performance.className ? `performance-${performance.className}` : "performance-on-track"}` }, [
-      h("td", {}, String(cases.length - index)),
-      h("td", {}, formatCompactDate(new Date(item.arrivalTime))),
-      h("td", {}, h("span", { class: "dashboard-patient-identity" }, [
-        h("strong", {}, item.patientName),
-        h("small", {}, item.uhid?.trim() || "--")
-      ])),
-      h("td", {}, `${item.age || "--"}/${shortGender(item.gender)}`),
-      h("td", {}, formatClock(item.arrivalTime)),
-      h("td", {}, dashboardImagingTime(item, "ct")),
-      h("td", {}, dashboardImagingTime(item, "mri")),
-      h("td", {}, isIvtSkipped(item) ? "N/A" : metricText(item, "doorIvt")),
-      h("td", {}, metricText(item, "doorGroin")),
-      h("td", {}, metricText(item, "doorRecan")),
-      h("td", {}, metricText(item, "groinRecan"))
-    ]);
-  });
-  return h("div", { class: "table-wrap" }, h("table", { class: "dashboard-case-table" }, [
-    h("thead", {}, h("tr", {}, ["#", "Date", "Name", "Age/Sex", "AT", "D -> CT", "D -> MRI", "D -> IVT", "D -> GR", "D -> RE", "G -> RE"].map((text) => h("th", {}, text)))),
+  return h("div", { class: "table-wrap" }, dashboardCaseTable(cases, cases.length, 0));
+}
+
+function dashboardPrintPages(cases) {
+  if (!cases.length) return h("div", { class: "dashboard-print-pages" });
+  const pages = [];
+  for (let index = 0; index < cases.length; index += DASHBOARD_PRINT_PAGE_SIZE) {
+    pages.push(cases.slice(index, index + DASHBOARD_PRINT_PAGE_SIZE));
+  }
+  return h("div", { class: "dashboard-print-pages" }, pages.map((pageCases, pageIndex) =>
+    h("div", { class: "dashboard-print-page" },
+      dashboardCaseTable(pageCases, cases.length, pageIndex * DASHBOARD_PRINT_PAGE_SIZE, "dashboard-print-table")
+    )
+  ));
+}
+
+function dashboardCaseTable(cases, totalCount, offset, extraClass = "") {
+  const rows = cases.map((item, index) => dashboardCaseRow(item, totalCount - offset - index));
+  return h("table", { class: `dashboard-case-table ${extraClass}`.trim() }, [
+    h("thead", {}, h("tr", {}, ["#", "Date", "Name", "UHID", "Age/Sex", "AT", "D -> CT", "D -> MRI", "D -> IVT", "D -> GR", "D -> RE", "G -> RE"].map((text) => h("th", {}, text)))),
     h("tbody", {}, rows)
-  ]));
+  ]);
+}
+
+function dashboardCaseRow(item, displayNumber) {
+  const performance = performanceStatus(item);
+  return h("tr", { class: `performance-row ${performance.className ? `performance-${performance.className}` : "performance-on-track"}` }, [
+    h("td", {}, String(displayNumber)),
+    h("td", {}, formatCompactDate(new Date(item.arrivalTime))),
+    h("td", {}, h("strong", {}, item.patientName)),
+    h("td", {}, item.uhid?.trim() || "--"),
+    h("td", {}, `${item.age || "--"}/${shortGender(item.gender)}`),
+    h("td", {}, formatClock(item.arrivalTime)),
+    h("td", {}, dashboardImagingTime(item, "ct")),
+    h("td", {}, dashboardImagingTime(item, "mri")),
+    h("td", {}, isIvtSkipped(item) ? "N/A" : metricText(item, "doorIvt")),
+    h("td", {}, metricText(item, "doorGroin")),
+    h("td", {}, metricText(item, "doorRecan")),
+    h("td", {}, metricText(item, "groinRecan"))
+  ]);
 }
 
 function dashboardImagingTime(item, modality) {

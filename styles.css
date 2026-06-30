@@ -489,6 +489,27 @@ button {
   line-height: 1;
 }
 
+.dashboard-print-btn {
+  min-height: 34px;
+  padding: 6px 12px;
+  border-radius: 8px;
+  background: var(--purple);
+  color: #fff;
+  font-size: 0.8rem;
+  font-weight: 900;
+  white-space: nowrap;
+}
+
+.dashboard-print-btn:disabled {
+  cursor: not-allowed;
+  background: #d9dde5;
+  color: #7b8495;
+}
+
+.dashboard-print-pages {
+  display: none;
+}
+
 .cases-date-range {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1813,7 +1834,7 @@ table {
 }
 
 .dashboard-case-table {
-  min-width: 1040px;
+  min-width: 1120px;
   table-layout: auto;
 }
 
@@ -1836,23 +1857,19 @@ table {
 
 .dashboard-case-table th:nth-child(3),
 .dashboard-case-table td:nth-child(3) {
-  min-width: 180px;
-  white-space: normal;
+  width: 150px;
+  max-width: 150px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.dashboard-patient-identity {
-  display: flex;
-  align-items: baseline;
-  gap: 7px;
-}
-
-.dashboard-patient-identity strong {
-  color: var(--ink);
-}
-
-.dashboard-patient-identity small {
-  color: var(--muted);
-  font-size: 0.72rem;
+.dashboard-case-table th:nth-child(4),
+.dashboard-case-table td:nth-child(4) {
+  width: 96px;
+  max-width: 96px;
+  overflow: hidden;
+  text-overflow: ellipsis;
   font-weight: 800;
   white-space: nowrap;
 }
@@ -2612,6 +2629,11 @@ th {
 }
 
 @media print {
+  @page dashboard-table {
+    size: A4 landscape;
+    margin: 8mm;
+  }
+
   body {
     background: #fff;
   }
@@ -2645,6 +2667,93 @@ th {
   .kpi-report-preview > div,
   .kpi-trend-tile {
     break-inside: avoid;
+  }
+
+  .app-shell.dashboard-wide > section > * {
+    display: none !important;
+  }
+
+  .app-shell.dashboard-wide > section > .dashboard-print-pages {
+    display: block !important;
+  }
+
+  .dashboard-print-page {
+    page: dashboard-table;
+    break-after: page;
+    page-break-after: always;
+  }
+
+  .dashboard-print-page:last-child {
+    break-after: auto;
+    page-break-after: auto;
+  }
+
+  .dashboard-print-table {
+    width: 100%;
+    min-width: 0;
+    table-layout: fixed;
+    border: 1px solid #bfc4ce;
+    border-collapse: collapse;
+    box-shadow: none;
+  }
+
+  .dashboard-print-table th,
+  .dashboard-print-table td {
+    height: 9.5mm;
+    padding: 1.5mm 1.2mm;
+    border-right: 1px solid #cdd1d9;
+    border-bottom: 1px solid #cdd1d9;
+    color: #111827;
+    font-size: 7.5pt;
+    line-height: 1.15;
+    white-space: nowrap;
+  }
+
+  .dashboard-print-table th {
+    height: 8mm;
+    background: #f0f1f4 !important;
+    font-size: 7pt;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  .dashboard-print-table th:nth-child(1),
+  .dashboard-print-table td:nth-child(1) {
+    width: 4%;
+  }
+
+  .dashboard-print-table th:nth-child(2),
+  .dashboard-print-table td:nth-child(2) {
+    width: 8%;
+  }
+
+  .dashboard-print-table th:nth-child(3),
+  .dashboard-print-table td:nth-child(3) {
+    width: 15%;
+  }
+
+  .dashboard-print-table th:nth-child(4),
+  .dashboard-print-table td:nth-child(4) {
+    width: 9%;
+  }
+
+  .dashboard-print-table th:nth-child(5),
+  .dashboard-print-table td:nth-child(5) {
+    width: 6%;
+  }
+
+  .dashboard-print-table th:nth-child(6),
+  .dashboard-print-table td:nth-child(6) {
+    width: 6%;
+  }
+
+  .dashboard-print-table th:nth-child(n+7),
+  .dashboard-print-table td:nth-child(n+7) {
+    width: 8.666%;
+  }
+
+  .dashboard-print-table .performance-row td:first-child {
+    border-left: 0;
   }
 }
 
