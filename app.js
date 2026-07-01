@@ -274,7 +274,7 @@ let cloudSync = {
 
 setInterval(() => {
   state.tick = Date.now();
-  if (["timeline", "home", "cases", "dashboard"].includes(state.view) && !state.manualTarget && !state.noteTarget && !state.stopTarget && !state.kpiTarget) render();
+  if (["timeline", "home"].includes(state.view) && !state.manualTarget && !state.noteTarget && !state.stopTarget && !state.kpiTarget) render();
 }, 1000);
 
 if ("serviceWorker" in navigator) {
