@@ -168,6 +168,21 @@ button {
   text-align: center;
 }
 
+.device-request-form {
+  display: grid;
+  width: 100%;
+  gap: 12px;
+  text-align: left;
+}
+
+.device-request-form .field {
+  margin: 0;
+}
+
+.device-request-form .primary-cta {
+  margin-top: 2px;
+}
+
 .pin-keypad {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -1599,6 +1614,12 @@ button {
 .device-card strong,
 .device-card span {
   display: block;
+}
+
+.device-info {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
 }
 
 .device-card strong {

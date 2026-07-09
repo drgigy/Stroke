@@ -430,6 +430,8 @@ function initDeviceApproval() {
         deviceCode: state.device.code,
         status: "pending",
         deviceLabel: "",
+        doctorName: "",
+        department: "",
         firstSeenAt: now,
         lastSeenAt: now,
         approvedAt: "",
@@ -527,6 +529,7 @@ function render() {
 function deviceApprovalScreen() {
   const status = state.deviceStatus;
   const record = state.deviceRecord || {};
+  const pending = !["blocked", "error"].includes(status);
   return h("section", { class: "lock-screen" }, [
     h("div", { class: "brand lock-brand" }, [
       h("div", { class: "brand-mark" }, "SC"),
@@ -542,13 +545,74 @@ function deviceApprovalScreen() {
         ? "This device has been blocked. Contact admin if this is a mistake."
         : status === "error"
           ? "Unable to check approval. Check internet, Firebase, and Firestore rules."
-          : "Share this code with admin. The app will open automatically after this device is approved."),
+          : "Enter the user details and share this code with admin. The app will open automatically after approval."),
+      pending ? deviceRequestForm(record) : null,
       cloudSync.error ? h("div", { class: "settings-message" }, cloudSync.error) : null,
       installButton(),
       state.installMessage ? h("div", { class: "install-help" }, state.installMessage) : null,
       h("button", { class: "secondary-btn", type: "button", onclick: () => { initCloudSync(); render(); } }, "CHECK AGAIN")
     ])
   ]);
+}
+
+function deviceRequestForm(record) {
+  return h("form", {
+    class: "device-request-form",
+    onsubmit: (event) => {
+      event.preventDefault();
+      const form = new FormData(event.currentTarget);
+      saveDeviceRequestDetails({
+        doctorName: form.get("doctorName").trim(),
+        department: form.get("department").trim(),
+        deviceLabel: form.get("deviceLabel").trim()
+      });
+    }
+  }, [
+    field("Doctor / user name", h("input", {
+      name: "doctorName",
+      value: record.doctorName || "",
+      placeholder: "Name of person using this device",
+      required: true,
+      autocomplete: "name"
+    })),
+    field("Department / role", h("input", {
+      name: "department",
+      value: record.department || "",
+      placeholder: "Neurology / ER / Stroke coordinator",
+      required: true
+    })),
+    field("Device name", h("input", {
+      name: "deviceLabel",
+      value: record.deviceLabel || "",
+      placeholder: "Example: Dr Gigi iPhone"
+    })),
+    h("button", { class: "primary-cta", type: "submit" }, record.doctorName || record.department ? "UPDATE APPROVAL REQUEST" : "SEND APPROVAL REQUEST")
+  ]);
+}
+
+function saveDeviceRequestDetails(details) {
+  if (!cloudSync.enabled || !cloudSync.db) return;
+  if (!details.doctorName || !details.department) {
+    cloudSync.error = "Doctor / user name and department are required";
+    render();
+    return;
+  }
+  const now = new Date().toISOString();
+  cloudSync.db.collection(DEVICE_COLLECTION).doc(state.device.id).set({
+    deviceId: state.device.id,
+    deviceCode: state.device.code,
+    doctorName: details.doctorName,
+    department: details.department,
+    deviceLabel: details.deviceLabel,
+    status: state.deviceRecord?.status || "pending",
+    requestUpdatedAt: now,
+    lastSeenAt: now
+  }, { merge: true }).then(() => {
+    cloudSync.error = "";
+  }).catch((error) => {
+    cloudSync.error = `${error.code || "error"}: Device approval request failed`;
+    render();
+  });
 }
 
 function topbar() {
@@ -2433,7 +2497,7 @@ function moreScreen() {
       metricCard("Firebase project", cloudSync.projectId),
       metricCard("Last cloud sync", cloudSync.lastSyncAt ? formatClock(cloudSync.lastSyncAt) : "--"),
       metricCard("Centre", accessSettings.centreName),
-      metricCard("This device", state.deviceRecord?.deviceCode || state.device.code),
+      metricCard("This device", deviceDisplayName(state.deviceRecord || state.device)),
       cloudSync.error ? metricCard("Sync error", cloudSync.error) : null,
       installButton(),
       state.installMessage ? h("div", { class: "install-help" }, state.installMessage) : null,
@@ -2538,7 +2602,7 @@ function listenDeviceApprovals() {
   if (!cloudSync.enabled || !cloudSync.db || cloudSync.devicesListening) return;
   cloudSync.devicesListening = true;
   cloudSync.db.collection(DEVICE_COLLECTION).orderBy("lastSeenAt", "desc").onSnapshot((snapshot) => {
-    state.devices = snapshot.docs.map((doc) => doc.data());
+    state.devices = snapshot.docs.map((doc) => ({ deviceId: doc.id, ...doc.data() }));
     render();
   }, (error) => {
     state.adminMessage = `${error.code || "error"}: Device list failed`;
@@ -2551,11 +2615,11 @@ function adminDevicesPanel() {
   const groups = [
     ["pending", "Pending Devices"],
     ["approved", "Approved Devices"],
-    ["blocked", "Blocked Devices"]
+    ["blocked", "Blocked / Revoked Devices"]
   ];
   return h("div", { class: "admin-devices" }, [
     h("div", { class: "section-heading compact-heading" }, [h("h2", {}, "Admin Devices")]),
-    h("p", { class: "settings-help" }, "Approve only phones or computers that should access Rajagiri Stroke Code."),
+    h("p", { class: "settings-help" }, "Approve only known doctors, coordinators, or hospital devices. Revoke old devices to make users request access again with their details."),
     ...groups.map(([status, label]) => {
       const devices = state.devices.filter((device) => (device.status || "pending") === status);
       return h("div", { class: "device-group" }, [
@@ -2570,11 +2634,14 @@ function deviceCard(device) {
   const isThisDevice = device.deviceId === state.device.id;
   const status = device.status || "pending";
   return h("div", { class: `device-card device-${status}` }, [
-    h("div", {}, [
-      h("strong", {}, `${device.deviceCode || device.deviceId}${isThisDevice ? " (this device)" : ""}`),
+    h("div", { class: "device-info" }, [
+      h("strong", {}, `${deviceDisplayName(device)}${isThisDevice ? " (this device)" : ""}`),
+      h("span", {}, `Code: ${device.deviceCode || device.deviceId || "--"}`),
+      h("span", {}, `Department / role: ${device.department || "--"}`),
+      h("span", {}, `Device name: ${device.deviceLabel || "--"}`),
       h("span", {}, `Status: ${status}`),
-      h("span", {}, `First seen: ${device.firstSeenAt ? formatClock(device.firstSeenAt) : "--"}`),
-      h("span", {}, `Last seen: ${device.lastSeenAt ? formatClock(device.lastSeenAt) : "--"}`)
+      h("span", {}, `First seen: ${device.firstSeenAt ? formatCaseDateTime(device.firstSeenAt) : "--"}`),
+      h("span", {}, `Last seen: ${device.lastSeenAt ? formatCaseDateTime(device.lastSeenAt) : "--"}`)
     ]),
     h("div", { class: "device-actions" }, [
       status !== "approved" ? h("button", { type: "button", class: "record-btn", onclick: () => updateDeviceStatus(device.deviceId, "approved") }, "APPROVE") : null,
@@ -2582,6 +2649,12 @@ function deviceCard(device) {
       status === "blocked" ? h("button", { type: "button", class: "manual-btn", onclick: () => updateDeviceStatus(device.deviceId, "pending") }, "UNBLOCK") : null
     ])
   ]);
+}
+
+function deviceDisplayName(device) {
+  if (!device) return "--";
+  const name = device.doctorName || device.deviceLabel;
+  return name || device.deviceCode || device.id || "--";
 }
 
 function updateDeviceStatus(deviceId, status) {
