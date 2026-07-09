@@ -223,6 +223,7 @@ let state = {
   device: loadDeviceIdentity(),
   deviceStatus: "checking",
   deviceRecord: null,
+  deviceRequestDraft: {},
   devices: [],
   adminUnlocked: false,
   authError: "",
@@ -556,6 +557,7 @@ function deviceApprovalScreen() {
 }
 
 function deviceRequestForm(record) {
+  const draft = { ...record, ...state.deviceRequestDraft };
   return h("form", {
     class: "device-request-form",
     onsubmit: (event) => {
@@ -570,21 +572,21 @@ function deviceRequestForm(record) {
   }, [
     field("Doctor / user name", h("input", {
       name: "doctorName",
-      value: record.doctorName || "",
-      placeholder: "Name of person using this device",
+      value: draft.doctorName || "",
       required: true,
-      autocomplete: "name"
+      autocomplete: "name",
+      oninput: (event) => { state.deviceRequestDraft.doctorName = event.target.value; }
     })),
     field("Department / role", h("input", {
       name: "department",
-      value: record.department || "",
-      placeholder: "Neurology / ER / Stroke coordinator",
-      required: true
+      value: draft.department || "",
+      required: true,
+      oninput: (event) => { state.deviceRequestDraft.department = event.target.value; }
     })),
     field("Device name", h("input", {
       name: "deviceLabel",
-      value: record.deviceLabel || "",
-      placeholder: "Example: Dr Gigi iPhone"
+      value: draft.deviceLabel || "",
+      oninput: (event) => { state.deviceRequestDraft.deviceLabel = event.target.value; }
     })),
     h("button", { class: "primary-cta", type: "submit" }, record.doctorName || record.department ? "UPDATE APPROVAL REQUEST" : "SEND APPROVAL REQUEST")
   ]);
@@ -609,6 +611,7 @@ function saveDeviceRequestDetails(details) {
     lastSeenAt: now
   }, { merge: true }).then(() => {
     cloudSync.error = "";
+    state.deviceRequestDraft = {};
   }).catch((error) => {
     cloudSync.error = `${error.code || "error"}: Device approval request failed`;
     render();
