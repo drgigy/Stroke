@@ -519,6 +519,8 @@ function h(tag, attrs = {}, children = []) {
 
 function render() {
   const app = document.querySelector("#app");
+  const active = document.activeElement;
+  if (state.deviceStatus !== "approved" && active?.closest?.(".device-request-form")) return;
   app.innerHTML = "";
   if (state.deviceStatus !== "approved") {
     app.appendChild(h("main", { class: "app-shell lock-shell" }, deviceApprovalScreen()));
