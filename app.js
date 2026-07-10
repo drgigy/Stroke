@@ -2495,20 +2495,12 @@ function applyCasesClinicalFilters(cases) {
 
 function moreScreen() {
   return h("section", {}, [
-    title("More", "Configuration"),
+    title("More", "App access"),
     h("div", { class: "form-card" }, [
-      metricCard("Storage", "Local PWA"),
-      metricCard("Firestore", cloudSync.status),
-      metricCard("Firebase project", cloudSync.projectId),
-      metricCard("Last cloud sync", cloudSync.lastSyncAt ? formatClock(cloudSync.lastSyncAt) : "--"),
       metricCard("Centre", accessSettings.centreName),
       metricCard("This device", deviceDisplayName(state.deviceRecord || state.device)),
-      cloudSync.error ? metricCard("Sync error", cloudSync.error) : null,
       installButton(),
-      state.installMessage ? h("div", { class: "install-help" }, state.installMessage) : null,
-      h("button", { class: "secondary-btn", onclick: testCloudSync }, "TEST FIREBASE CONNECTION"),
-      h("button", { class: "secondary-btn", onclick: exportCases }, "EXPORT CASES JSON"),
-      h("button", { class: "danger-btn", style: "background:#fff0f0;color:#e5484d", onclick: clearCases }, "CLEAR LOCAL CASES")
+      state.installMessage ? h("div", { class: "install-help" }, state.installMessage) : null
     ]),
     state.adminUnlocked ? accessSettingsPanel() : adminUnlockPanel()
   ]);
@@ -2571,12 +2563,30 @@ function accessSettingsPanel() {
     state.settingsMessage ? h("div", { class: `settings-message ${state.settingsMessage.includes("updated") ? "ok" : ""}` }, state.settingsMessage) : null,
     h("button", { class: "secondary-btn", type: "button", onclick: () => { state.adminUnlocked = false; state.settingsMessage = ""; render(); } }, "CLOSE ADMIN SETTINGS"),
     h("button", { class: "primary-cta", type: "submit" }, "SAVE ACCESS SETTINGS"),
+    adminDiagnosticsPanel(),
     adminDevicesPanel()
   ]);
 }
 
 function isFourDigitPin(value) {
   return /^\d{4}$/.test(value);
+}
+
+function adminDiagnosticsPanel() {
+  return h("div", { class: "admin-devices" }, [
+    h("div", { class: "section-heading compact-heading" }, [h("h2", {}, "Admin Diagnostics")]),
+    h("p", { class: "settings-help" }, "Technical sync and export tools for admin use only."),
+    h("div", { class: "form-card" }, [
+      metricCard("Storage", "Local PWA"),
+      metricCard("Firestore", cloudSync.status),
+      metricCard("Firebase project", cloudSync.projectId),
+      metricCard("Last cloud sync", cloudSync.lastSyncAt ? formatClock(cloudSync.lastSyncAt) : "--"),
+      cloudSync.error ? metricCard("Sync error", cloudSync.error) : null,
+      h("button", { class: "secondary-btn", type: "button", onclick: testCloudSync }, "TEST FIREBASE CONNECTION"),
+      h("button", { class: "secondary-btn", type: "button", onclick: exportCases }, "EXPORT CASES JSON"),
+      h("button", { class: "danger-btn", type: "button", style: "background:#fff0f0;color:#e5484d", onclick: clearCases }, "CLEAR LOCAL CASES")
+    ])
+  ]);
 }
 
 function installButton() {
