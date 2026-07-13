@@ -14,6 +14,15 @@ const defaultAccessSettings = {
   updatedAt: ""
 };
 
+const admittingConsultants = [
+  ["not-admitted", "Not admitted", "NA"],
+  ["gigy-kuruttukulam", "Dr Gigy Kuruttukulam", "GG"],
+  ["pratheep-kottam", "Dr Pratheep Kottam", "PK"],
+  ["jithin-bose", "Dr Jithin Bose", "JB"],
+  ["nimish-vijayakumar", "Dr Nimish Vijayakumar", "NV"],
+  ["suneesh-er", "Dr Suneesh ER", "SE"]
+];
+
 const imagingModalityOptions = [
   "CT Brain",
   "CT Brain + CT Angiography",
@@ -746,6 +755,7 @@ function createScreen() {
           caseStoppedComment: "",
           centreName: accessSettings.centreName,
           observerName: "",
+          admittingConsultant: "",
           includeInCodeStrokeKpi: "",
           signedOffAt: "",
           signedOffUpdatedAt: "",
@@ -1330,6 +1340,7 @@ function signoffPanel(item, missing) {
       const form = new FormData(event.currentTarget);
       item.observerName = form.get("observerName").trim();
       item.caseComment = form.get("caseComment").trim();
+      item.admittingConsultant = form.get("admittingConsultant") || "";
       item.includeInCodeStrokeKpi = item.includeInCodeStrokeKpi || "";
       item.signoffAttempted = true;
       const currentMissing = signoffMissingItems(item);
@@ -1345,10 +1356,12 @@ function signoffPanel(item, missing) {
     h("div", { class: "section-heading compact-heading" }, [h("h2", {}, "Final Sign-off")]),
     field("Data entered by", h("input", { name: "observerName", placeholder: "Name of observer / intern / coordinator", value: item.observerName || "" })),
     field("Overall case comments", h("textarea", { name: "caseComment", placeholder: "Add final comments about delays, clinical decision, consent, transfer, or pathway issues" }, item.caseComment || "")),
+    field("Admitted under", consultantSelect(item.admittingConsultant || "")),
     optionField("Include in Code Stroke KPI?", "includeInCodeStrokeKpi", item.includeInCodeStrokeKpi || "", ["Yes", "No"], (value) => {
       const form = document.querySelector(".signoff-card");
       item.observerName = form?.querySelector("[name='observerName']")?.value.trim() || item.observerName || "";
       item.caseComment = form?.querySelector("[name='caseComment']")?.value.trim() || item.caseComment || "";
+      item.admittingConsultant = form?.querySelector("[name='admittingConsultant']")?.value || item.admittingConsultant || "";
       item.includeInCodeStrokeKpi = value;
       saveCases();
       render();
@@ -1376,6 +1389,11 @@ function handlePendingClick(caseId, entry) {
   }
   if (entry.type === "observer") {
     const input = document.querySelector("[name='observerName']");
+    if (input) input.focus();
+    return;
+  }
+  if (entry.type === "consultant") {
+    const input = document.querySelector("[name='admittingConsultant']");
     if (input) input.focus();
     return;
   }
@@ -3138,6 +3156,19 @@ function select(name, options, value = "", onChange) {
   return h("select", { name, onchange: onChange ? (event) => onChange(event.target.value) : null }, options.map((option) => h("option", { value: option, selected: option === value }, option || "Select")));
 }
 
+function consultantSelect(value = "") {
+  return h("select", { name: "admittingConsultant" }, [
+    h("option", { value: "", selected: !value }, "Select"),
+    ...admittingConsultants.map(([id, name, code]) =>
+      h("option", { value: id, selected: id === value }, `${name} - ${code}`)
+    )
+  ]);
+}
+
+function consultantCode(value) {
+  return admittingConsultants.find(([id]) => id === value)?.[2] || "--";
+}
+
 function title(head, sub) {
   return h("div", { class: "screen-title" }, [h("h1", {}, head), sub ? h("p", {}, sub) : null]);
 }
@@ -3264,7 +3295,7 @@ function dashboardPrintPages(cases) {
 function dashboardCaseTable(cases, totalCount, offset, extraClass = "") {
   const rows = cases.map((item, index) => dashboardCaseRow(item, totalCount - offset - index));
   return h("table", { class: `dashboard-case-table ${extraClass}`.trim() }, [
-    h("thead", {}, h("tr", {}, ["#", "Date", "Name", "UHID", "Age/Sex", "AT", "D -> CT", "D -> MRI", "D -> IVT", "D -> GR", "D -> RE", "G -> RE"].map((text) => h("th", {}, text)))),
+    h("thead", {}, h("tr", {}, ["#", "Doc", "Date", "Name", "UHID", "Age/Sex", "AT", "D -> CT", "D -> MRI", "D -> IVT", "D -> GR", "D -> RE", "G -> RE"].map((text) => h("th", {}, text)))),
     h("tbody", {}, rows)
   ]);
 }
@@ -3273,6 +3304,7 @@ function dashboardCaseRow(item, displayNumber) {
   const performance = performanceStatus(item);
   return h("tr", { class: `performance-row ${performance.className ? `performance-${performance.className}` : "performance-on-track"}` }, [
     h("td", {}, String(displayNumber)),
+    h("td", {}, h("strong", {}, consultantCode(item.admittingConsultant))),
     h("td", {}, formatCompactDate(new Date(item.arrivalTime))),
     h("td", {}, h("strong", {}, item.patientName)),
     h("td", {}, item.uhid?.trim() || "--"),
@@ -3505,6 +3537,7 @@ function mtWorkflowState(item) {
 function signoffMissingItems(item) {
   const missing = [];
   if (!item.observerName?.trim()) missing.push({ label: "Data entered by", type: "observer" });
+  if (!item.admittingConsultant && (!item.signedOffAt || item.signoffAttempted)) missing.push({ label: "Admitted under", type: "consultant" });
   if (!["Yes", "No"].includes(item.includeInCodeStrokeKpi || "")) missing.push({ label: "Include in Code Stroke KPI?", type: "kpiInclude" });
   if (!item.patientName || item.patientName === "Unnamed Patient") missing.push({ label: "Patient Name", type: "details" });
   if (!item.suspicion) missing.push({ label: "Stroke Suspicion", type: "details" });
