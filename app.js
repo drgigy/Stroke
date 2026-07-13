@@ -111,6 +111,10 @@ const kpiTimestampFields = [
   ["intracranialProcedureTime", "Intracranial Angioplasty/Stenting Time"],
   ["intracranialStrokeDeathTime", "Stroke/Death Time after Intracranial Procedure"]
 ];
+const timelineSyncedKpiTimestampKeys = new Set([
+  "diagnosticImagingRequestTime",
+  "diagnosticImagingPresentationTime"
+]);
 const kpiYesNoFields = [
   ["evtIndicated", "EVT Indicated"],
   ["largeVesselOcclusion", "Large Vessel Occlusion"],
@@ -2243,17 +2247,21 @@ function defaultKpiFieldCount() {
 }
 
 function kpiValue(item, key) {
+  const derived = derivedKpiData(item);
+  if (timelineSyncedKpiTimestampKeys.has(key) && derived[key]) return derived[key];
   const stored = item.kpi?.[key];
-  return stored !== "" && stored != null ? stored : derivedKpiData(item)[key] || "";
+  return stored !== "" && stored != null ? stored : derived[key] || "";
 }
 
 function derivedKpiData(item) {
   const stages = item.stages || {};
   const firstImagingStart = firstBrainImagingStartTime(item);
+  const firstImagingPresentation = firstImagingPresentationTime(item);
   return {
     hospitalAdmissionTime: item.arrivalTime || "",
     dysphagiaScreening: stages.dysphagiaScreening?.time ? "Yes" : "",
     diagnosticImagingRequestTime: stages.ctInformed?.time || "",
+    diagnosticImagingPresentationTime: firstImagingPresentation,
     diagnosticImagingStartTime: firstImagingStart,
     diagnosticImagingPerformed: firstImagingStart ? "Yes" : "",
     strokeUnitAdmissionTime: stages.strokeUnitAdmission?.time || "",
@@ -2336,6 +2344,10 @@ function firstRecordedTime(item, stageIds) {
 
 function firstBrainImagingStartTime(item) {
   return firstRecordedTime(item, ["ncctStarted", "mriStarted"]);
+}
+
+function firstImagingPresentationTime(item) {
+  return firstRecordedTime(item, ["reachedCt", "reachedMri"]);
 }
 
 function minutesBetween(start, end) {
@@ -2758,7 +2770,7 @@ function toggleStageNotApplicable(caseId, stageId) {
       previous: current?.time ? current : null
     };
   }
-  if (["ncctStarted", "mriStarted"].includes(stageId)) syncImagingKpiFields(item);
+  if (["reachedCt", "reachedMri", "ncctStarted", "mriStarted"].includes(stageId)) syncImagingKpiFields(item);
   saveCases();
   render();
 }
@@ -2779,14 +2791,19 @@ function syncStageToKpi(item, stageId, time) {
     if (item.kpiFieldStatus) delete item.kpiFieldStatus[timestampKey];
   }
   if (stageId === "dysphagiaScreening") item.kpi.dysphagiaScreening = "Yes";
-  if (["ncctStarted", "mriStarted"].includes(stageId)) syncImagingKpiFields(item);
+  if (["reachedCt", "reachedMri", "ncctStarted", "mriStarted"].includes(stageId)) syncImagingKpiFields(item);
   if (stageId === "ivtStarted") item.kpi.ivtGiven = "Yes";
   if (["groinPuncture", "firstPass", "recanalisation"].includes(stageId)) item.kpi.evtPerformed = "Yes";
 }
 
 function syncImagingKpiFields(item) {
   item.kpi = { ...defaultKpiData(), ...(item.kpi || {}) };
+  const firstImagingPresentation = firstImagingPresentationTime(item);
   const firstImagingStart = firstBrainImagingStartTime(item);
+  if (firstImagingPresentation) {
+    item.kpi.diagnosticImagingPresentationTime = firstImagingPresentation;
+    if (item.kpiFieldStatus) delete item.kpiFieldStatus.diagnosticImagingPresentationTime;
+  }
   if (firstImagingStart) {
     item.kpi.diagnosticImagingStartTime = firstImagingStart;
     item.kpi.diagnosticImagingPerformed = "Yes";
@@ -3193,7 +3210,9 @@ function ensureKpiData(item) {
   const existing = item.kpi || {};
   const derived = derivedKpiData(item);
   item.kpi = Object.keys(defaultKpiData()).reduce((data, key) => {
-    data[key] = existing[key] !== "" && existing[key] != null ? existing[key] : derived[key] || "";
+    data[key] = timelineSyncedKpiTimestampKeys.has(key) && derived[key]
+      ? derived[key]
+      : existing[key] !== "" && existing[key] != null ? existing[key] : derived[key] || "";
     return data;
   }, {});
   return item.kpi;
