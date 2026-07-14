@@ -20,7 +20,10 @@ const admittingConsultants = [
   ["pratheep-kottam", "Dr Pratheep Kottam", "PK"],
   ["jithin-bose", "Dr Jithin Bose", "JB"],
   ["nimish-vijayakumar", "Dr Nimish Vijayakumar", "NV"],
-  ["suneesh-er", "Dr Suneesh ER", "SE"]
+  ["suneesh-er", "Dr Suneesh ER", "SE"],
+  ["arjun-chackpo", "Dr Arjun Chackpo", "AC"],
+  ["jagathlal-gangadharan", "Dr Jagathlal Gangadharan", "JG"],
+  ["manoj-narayana-panicker", "Dr Manoj Narayana Panicker", "MN"]
 ];
 
 const imagingModalityOptions = [
@@ -251,10 +254,14 @@ let state = {
   kpiRangePreset: "month",
   kpiRangeStart: dateInputValue(startOfMonth(new Date())),
   kpiRangeEnd: dateInputValue(new Date()),
+  analysisMode: "menu",
+  analysisSlide: 0,
   casesRangeMode: "month",
   casesKpiOnly: false,
   casesIvtOnly: false,
   casesMtOnly: false,
+  casesDoctorFilterOpen: false,
+  casesDoctorFilters: [],
   casesMonth: monthKey(new Date()),
   casesRangeStart: dateInputValue(startOfMonth(new Date())),
   casesRangeEnd: dateInputValue(new Date()),
@@ -264,6 +271,8 @@ let state = {
   dashboardKpiOnly: false,
   dashboardIvtOnly: false,
   dashboardMtOnly: false,
+  dashboardDoctorFilterOpen: false,
+  dashboardDoctorFilters: [],
   dashboardNotesRangeMode: "month",
   dashboardNotesRangeStart: dateInputValue(startOfMonth(new Date())),
   dashboardNotesRangeEnd: dateInputValue(new Date()),
@@ -652,6 +661,7 @@ function topbar() {
 function topbarContext() {
   if (state.view === "cases") return { title: "Cases" };
   if (state.view === "dashboard") return { title: "Dashboard" };
+  if (state.view === "analysis") return { title: "Analysis" };
   if (state.view === "kpi") {
     const range = selectedKpiRange();
     return { title: "NABH KPI Analysis", sub: `Reporting period: ${formatReportDate(range.start)} to ${formatReportDate(range.end)}` };
@@ -665,6 +675,7 @@ function bottomNav() {
     navButton("cases", "Cases"),
     navButton("dashboard", "Dashboard"),
     navButton("kpi", "KPI"),
+    navButton("analysis", "Analysis"),
     navButton("more", "More")
   ]);
 }
@@ -682,12 +693,17 @@ function screen() {
   if (state.view === "summary") return summaryScreen();
   if (state.view === "dashboard") return dashboardScreen();
   if (state.view === "kpi") return kpiScreen();
+  if (state.view === "analysis") return analysisScreen();
   if (state.view === "cases") return casesScreen();
   if (state.view === "more") return moreScreen();
   return homeScreen();
 }
 
 function go(view, caseId) {
+  if (view === "analysis" && state.view !== "analysis") {
+    state.analysisMode = "menu";
+    state.analysisSlide = 0;
+  }
   state.view = view;
   if (caseId) state.activeCaseId = caseId;
   render();
@@ -1439,6 +1455,7 @@ function dashboardRangePanel(section, cases = []) {
             casesClinicalFilterToggle("dashboardKpiOnly", "KPI cases"),
             casesClinicalFilterToggle("dashboardIvtOnly", "IVT cases"),
             casesClinicalFilterToggle("dashboardMtOnly", "MT cases"),
+            doctorFilterToggle("dashboard"),
             h("button", {
               type: "button",
               class: "dashboard-print-btn",
@@ -1448,6 +1465,7 @@ function dashboardRangePanel(section, cases = []) {
           ])
         : null
     ]),
+    section === "cases" && state.dashboardDoctorFilterOpen ? doctorFilterPanel("dashboard") : null,
     state[modeKey] === "custom"
       ? h("div", { class: "cases-date-range" }, [
           field("From", h("input", {
@@ -1510,7 +1528,8 @@ function applyDashboardClinicalFilters(cases) {
   return cases.filter((item) =>
     (!state.dashboardKpiOnly || isCodeStrokeKpiIncluded(item)) &&
     (!state.dashboardIvtOnly || isIvtTreatmentCase(item)) &&
-    (!state.dashboardMtOnly || isMechanicalThrombectomyCase(item))
+    (!state.dashboardMtOnly || isMechanicalThrombectomyCase(item)) &&
+    doctorFilterMatches(item, state.dashboardDoctorFilters)
   );
 }
 
@@ -1552,6 +1571,230 @@ function kpiScreen() {
           ]),
     singleMonth ? kpiAdminPanel(state.kpiAdminMonth, kpiAdminForMonth(state.kpiAdminMonth)) : h("div", { class: "kpi-period-note" }, "Monthly admin inputs are combined automatically across this reporting period. Select a single month to edit them.")
   ]);
+}
+
+function analysisScreen() {
+  if (state.analysisMode === "kpi") return kpiAnalysisDeck();
+  const range = selectedKpiRange();
+  return h("section", { class: "analysis-screen" }, [
+    title("Analysis", "Presentation-ready audit views for meetings and screen sharing."),
+    h("div", { class: "analysis-option-grid" }, [
+      h("button", {
+        type: "button",
+        class: "analysis-option-card",
+        onclick: () => {
+          state.analysisMode = "kpi";
+          state.analysisSlide = 0;
+          render();
+        }
+      }, [
+        h("span", {}, "KPI Analysis"),
+        h("strong", {}, "NABH / stroke pathway KPI presentation"),
+        h("small", {}, `${formatReportDate(range.start)} to ${formatReportDate(range.end)}`)
+      ])
+    ])
+  ]);
+}
+
+function kpiAnalysisDeck() {
+  const data = kpi1AnalysisData();
+  const slides = [
+    kpi1OverviewSlide(data),
+    kpi1PatientChartSlide(data),
+    kpi1DataQualitySlide(data)
+  ];
+  const index = Math.max(0, Math.min(state.analysisSlide, slides.length - 1));
+  state.analysisSlide = index;
+  return h("section", { class: "analysis-deck" }, [
+    h("div", { class: "analysis-deck-top" }, [
+      h("button", {
+        type: "button",
+        class: "analysis-back-btn",
+        onclick: () => {
+          state.analysisMode = "menu";
+          state.analysisSlide = 0;
+          render();
+        }
+      }, "Back"),
+      h("div", {}, [
+        h("strong", {}, "KPI Analysis"),
+        h("span", {}, `${index + 1} / ${slides.length}`)
+      ]),
+      h("span", {}, `${formatReportDate(data.range.start)} to ${formatReportDate(data.range.end)}`)
+    ]),
+    h("div", { class: "analysis-slide-wrap" }, slides[index]),
+    h("div", { class: "analysis-slide-controls" }, [
+      h("button", { type: "button", disabled: index === 0, onclick: () => { state.analysisSlide = Math.max(0, index - 1); render(); } }, "Previous"),
+      h("div", { class: "analysis-dots" }, slides.map((_, dotIndex) => h("button", {
+        type: "button",
+        class: dotIndex === index ? "active" : "",
+        onclick: () => { state.analysisSlide = dotIndex; render(); }
+      }, String(dotIndex + 1)))),
+      h("button", { type: "button", disabled: index === slides.length - 1, onclick: () => { state.analysisSlide = Math.min(slides.length - 1, index + 1); render(); } }, "Next")
+    ])
+  ]);
+}
+
+function kpi1AnalysisData() {
+  const range = selectedKpiRange();
+  const allCases = casesForRange(range.start, range.end);
+  const cases = kpiIncludedCases(allCases);
+  const admin = kpiAdminForRange(range.start, range.end);
+  const result = buildNabhKpiReport(cases, admin).find((item) => item.no === 1);
+  const detail = kpiCaseAudit(1, cases, admin);
+  const rows = detail.eligible.map((item) => {
+    const referenceTime = strokeReferenceTime(item);
+    const imagingStart = firstBrainImagingStartTime(item);
+    const minutes = minutesBetween(referenceTime, imagingStart);
+    const missing = detail.missingFields(item);
+    return {
+      item,
+      date: formatCompactDate(new Date(item.arrivalTime)),
+      name: item.patientName || "Unnamed Patient",
+      doc: consultantCode(item.admittingConsultant),
+      presentation: kpiValue(item, "strokePresentationType") || "ER arrival",
+      referenceTime,
+      imagingModality: firstImagingModality(item),
+      imagingStart,
+      minutes,
+      missing,
+      complete: detail.isComplete(item),
+      status: minutes == null ? "Pending" : minutes <= 25 ? "On target" : minutes <= 35 ? "Delayed" : "Critical"
+    };
+  });
+  const timed = rows.filter((row) => row.minutes != null);
+  const values = timed.map((row) => row.minutes).sort((a, b) => a - b);
+  const delayed = timed.filter((row) => row.minutes > 25);
+  const pending = rows.filter((row) => !row.complete);
+  return {
+    range,
+    result,
+    rows,
+    timed,
+    delayed,
+    pending,
+    eligible: rows.length,
+    completed: timed.length,
+    mean: values.length ? Math.round(values.reduce((sum, value) => sum + value, 0) / values.length) : null,
+    median: medianNumber(values),
+    withinTarget: timed.filter((row) => row.minutes <= 25).length,
+    targetPercent: timed.length ? Math.round((timed.filter((row) => row.minutes <= 25).length / timed.length) * 100) : null
+  };
+}
+
+function kpi1OverviewSlide(data) {
+  const interpretation = data.completed
+    ? `${data.withinTarget}/${data.completed} timed cases were within 25 minutes. Median ${data.median} min, mean ${data.mean} min.`
+    : "No timed cases are available in this reporting period.";
+  return analysisSlide("KPI 1", "Time to first brain imaging", [
+    h("div", { class: "analysis-kpi-summary" }, [
+      analysisMetric("Eligible", data.eligible),
+      analysisMetric("Completed", data.completed),
+      analysisMetric("Pending", data.pending.length),
+      analysisMetric("Median", data.median == null ? "--" : `${data.median} min`),
+      analysisMetric("Mean", data.mean == null ? "--" : `${data.mean} min`),
+      analysisMetric("Within target", data.targetPercent == null ? "--" : `${data.targetPercent}%`)
+    ]),
+    h("div", { class: "analysis-hero-grid" }, [
+      h("div", { class: "analysis-big-number" }, [
+        h("span", {}, "Target"),
+        h("strong", {}, "25 min"),
+        h("small", {}, "Door / stroke recognition -> first brain imaging start")
+      ]),
+      h("div", { class: "analysis-interpretation" }, [
+        h("h3", {}, "Interpretation"),
+        h("p", {}, interpretation),
+        h("p", {}, data.delayed.length ? `${data.delayed.length} timed case${data.delayed.length === 1 ? "" : "s"} crossed the 25-minute target.` : "No delayed timed cases detected.")
+      ])
+    ])
+  ]);
+}
+
+function kpi1PatientChartSlide(data) {
+  const maxMinutes = Math.max(35, ...data.timed.map((row) => row.minutes || 0));
+  const chartRows = [...data.rows].sort((a, b) => (b.minutes ?? -1) - (a.minutes ?? -1)).slice(0, 24);
+  return analysisSlide("KPI 1", "Patient-wise time to first brain imaging", [
+    chartRows.length ? h("div", { class: "analysis-bar-chart" }, chartRows.map((row) => {
+      const width = row.minutes == null ? 2 : Math.max(2, Math.min(100, Math.round((row.minutes / maxMinutes) * 100)));
+      return h("div", { class: "analysis-bar-row" }, [
+        h("span", {}, row.name),
+        h("div", { class: "analysis-bar-track" }, h("i", { class: analysisStatusClass(row), style: `width:${width}%` })),
+        h("strong", {}, row.minutes == null ? "--" : `${row.minutes}m`)
+      ]);
+    })) : empty("No eligible KPI 1 cases in this reporting period."),
+    h("div", { class: "analysis-target-note" }, "Green <=25 min | Orange 26-35 min | Red >35 min | Grey pending")
+  ]);
+}
+
+function kpi1DataQualitySlide(data) {
+  return analysisSlide("KPI 1", "Patients and data quality", [
+    data.rows.length ? h("div", { class: "analysis-table-wrap" }, h("table", { class: "analysis-case-table" }, [
+      h("thead", {}, h("tr", {}, ["#", "Date", "Name", "Doc", "Type", "Img", "Start", "Min", "Status"].map((text) => h("th", {}, text)))),
+      h("tbody", {}, data.rows.map((row, index) => h("tr", { class: analysisStatusClass(row) }, [
+        h("td", {}, String(index + 1)),
+        h("td", {}, row.date),
+        h("td", {}, row.name),
+        h("td", {}, row.doc),
+        h("td", {}, row.presentation === "Inpatient stroke" ? "IP" : "ER"),
+        h("td", {}, row.imagingModality),
+        h("td", {}, formatClock(row.imagingStart)),
+        h("td", {}, row.minutes == null ? "--" : String(row.minutes)),
+        h("td", {}, row.status)
+      ])))
+    ])) : empty("No eligible KPI 1 cases in this reporting period."),
+    h("div", { class: "analysis-pending-box" }, [
+      h("h3", {}, "Pending / invalid data"),
+      data.pending.length
+        ? h("div", {}, data.pending.map((row) => h("button", {
+            type: "button",
+            onclick: () => go("timeline", row.item.id)
+          }, `${row.name}: ${row.missing.join(", ") || "Required time missing"}`)))
+        : h("p", {}, "No pending patient data detected for KPI 1.")
+    ])
+  ]);
+}
+
+function analysisSlide(kicker, headingText, body) {
+  return h("article", { class: "analysis-slide" }, [
+    h("div", { class: "analysis-slide-title" }, [
+      h("span", {}, kicker),
+      h("h1", {}, headingText)
+    ]),
+    ...body
+  ]);
+}
+
+function analysisMetric(label, value) {
+  return h("div", { class: "analysis-metric" }, [
+    h("span", {}, label),
+    h("strong", {}, String(value))
+  ]);
+}
+
+function analysisStatusClass(row) {
+  if (row.minutes == null) return "pending";
+  if (row.minutes <= 25) return "good";
+  if (row.minutes <= 35) return "warn";
+  return "bad";
+}
+
+function firstImagingModality(item) {
+  const ct = stageTime(item, "ncctStarted");
+  const mri = stageTime(item, "mriStarted");
+  if (ct && mri) return new Date(ct) <= new Date(mri) ? "CT" : "MRI";
+  if (ct) return "CT";
+  if (mri) return "MRI";
+  const profile = imagingProfile(item);
+  if (profile.ct && profile.mri) return "CT/MRI";
+  if (profile.ct) return "CT";
+  if (profile.mri) return "MRI";
+  return "--";
+}
+
+function medianNumber(values) {
+  if (!values.length) return null;
+  const middle = Math.floor(values.length / 2);
+  return values.length % 2 ? values[middle] : Math.round((values[middle - 1] + values[middle]) / 2);
 }
 
 function kpiRangeControls() {
@@ -2437,9 +2680,11 @@ function casesFilterPanel() {
       h("div", { class: "cases-filter-toggles" }, [
         casesClinicalFilterToggle("casesKpiOnly", "KPI cases"),
         casesClinicalFilterToggle("casesIvtOnly", "IVT cases"),
-        casesClinicalFilterToggle("casesMtOnly", "MT cases")
+        casesClinicalFilterToggle("casesMtOnly", "MT cases"),
+        doctorFilterToggle("cases")
       ])
     ]),
+    state.casesDoctorFilterOpen ? doctorFilterPanel("cases") : null,
     state.casesRangeMode === "month"
       ? field("Select month", h("input", {
           type: "month",
@@ -2486,6 +2731,48 @@ function casesClinicalFilterToggle(stateKey, label) {
   ]);
 }
 
+function doctorFilterToggle(scope) {
+  const openKey = scope === "dashboard" ? "dashboardDoctorFilterOpen" : "casesDoctorFilterOpen";
+  const selectedKey = scope === "dashboard" ? "dashboardDoctorFilters" : "casesDoctorFilters";
+  const selected = state[selectedKey] || [];
+  return h("button", {
+    type: "button",
+    class: `filter-toggle doctor-filter-button ${state[openKey] || selected.length ? "active" : ""}`,
+    onclick: () => {
+      state[openKey] = !state[openKey];
+      render();
+    }
+  }, `Doctor${selected.length ? `: ${selected.length}` : ""}`);
+}
+
+function doctorFilterPanel(scope) {
+  const selectedKey = scope === "dashboard" ? "dashboardDoctorFilters" : "casesDoctorFilters";
+  const selected = state[selectedKey] || [];
+  return h("div", { class: "doctor-filter-panel" }, [
+    ...admittingConsultants.map(([id, name, code]) => h("button", {
+      type: "button",
+      class: selected.includes(id) ? "active" : "",
+      onclick: () => toggleDoctorFilter(selectedKey, id)
+    }, `${code} - ${name}`)),
+    selected.length ? h("button", {
+      type: "button",
+      class: "clear-filter",
+      onclick: () => {
+        state[selectedKey] = [];
+        render();
+      }
+    }, "Clear") : null
+  ]);
+}
+
+function toggleDoctorFilter(stateKey, doctorId) {
+  const selected = new Set(state[stateKey] || []);
+  if (selected.has(doctorId)) selected.delete(doctorId);
+  else selected.add(doctorId);
+  state[stateKey] = [...selected];
+  render();
+}
+
 function casesFilterButton(mode, label) {
   return h("button", {
     type: "button",
@@ -2519,8 +2806,13 @@ function applyCasesClinicalFilters(cases) {
   return cases.filter((item) =>
     (!state.casesKpiOnly || isCodeStrokeKpiIncluded(item)) &&
     (!state.casesIvtOnly || isIvtTreatmentCase(item)) &&
-    (!state.casesMtOnly || isMechanicalThrombectomyCase(item))
+    (!state.casesMtOnly || isMechanicalThrombectomyCase(item)) &&
+    doctorFilterMatches(item, state.casesDoctorFilters)
   );
+}
+
+function doctorFilterMatches(item, selectedDoctors = []) {
+  return !selectedDoctors.length || selectedDoctors.includes(item.admittingConsultant || "");
 }
 
 function moreScreen() {
