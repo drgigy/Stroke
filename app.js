@@ -21,7 +21,7 @@ const admittingConsultants = [
   ["jithin-bose", "Dr Jithin Bose", "JB"],
   ["nimish-vijayakumar", "Dr Nimish Vijayakumar", "NV"],
   ["suneesh-er", "Dr Suneesh ER", "SE"],
-  ["arjun-chackpo", "Dr Arjun Chackpo", "AC"],
+  ["arjun-chacko", "Dr Arjun Chacko", "AC"],
   ["jagathlal-gangadharan", "Dr Jagathlal Gangadharan", "JG"],
   ["manoj-narayana-panicker", "Dr Manoj Narayana Panicker", "MN"]
 ];
