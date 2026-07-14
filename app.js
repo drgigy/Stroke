@@ -1577,7 +1577,6 @@ function analysisScreen() {
   if (state.analysisMode === "kpi") return kpiAnalysisDeck();
   const range = selectedKpiRange();
   return h("section", { class: "analysis-screen" }, [
-    title("Analysis", "Presentation-ready audit views for meetings and screen sharing."),
     h("div", { class: "analysis-option-grid" }, [
       h("button", {
         type: "button",
@@ -1597,14 +1596,11 @@ function analysisScreen() {
 }
 
 function kpiAnalysisDeck() {
-  const data = kpi1AnalysisData();
-  const slides = [
-    kpi1OverviewSlide(data),
-    kpi1PatientChartSlide(data),
-    kpi1DataQualitySlide(data)
-  ];
+  const data = kpiAnalysisData();
+  const slides = data.report.map((result) => genericKpiAnalysisSlide(result, data));
   const index = Math.max(0, Math.min(state.analysisSlide, slides.length - 1));
   state.analysisSlide = index;
+  const current = data.report[index];
   return h("section", { class: "analysis-deck" }, [
     h("div", { class: "analysis-deck-top" }, [
       h("button", {
@@ -1617,22 +1613,94 @@ function kpiAnalysisDeck() {
         }
       }, "Back"),
       h("div", {}, [
-        h("strong", {}, "KPI Analysis"),
-        h("span", {}, `${index + 1} / ${slides.length}`)
+        h("strong", {}, current ? `KPI ${current.no}` : "KPI Analysis"),
+        h("span", {}, current ? current.title : `${index + 1} / ${slides.length}`)
       ]),
       h("span", {}, `${formatReportDate(data.range.start)} to ${formatReportDate(data.range.end)}`)
     ]),
     h("div", { class: "analysis-slide-wrap" }, slides[index]),
     h("div", { class: "analysis-slide-controls" }, [
-      h("button", { type: "button", disabled: index === 0, onclick: () => { state.analysisSlide = Math.max(0, index - 1); render(); } }, "Previous"),
+      h("button", { type: "button", disabled: index === 0, onclick: () => { state.analysisSlide = Math.max(0, index - 1); render(); } }, "< Previous KPI"),
       h("div", { class: "analysis-dots" }, slides.map((_, dotIndex) => h("button", {
         type: "button",
         class: dotIndex === index ? "active" : "",
         onclick: () => { state.analysisSlide = dotIndex; render(); }
       }, String(dotIndex + 1)))),
-      h("button", { type: "button", disabled: index === slides.length - 1, onclick: () => { state.analysisSlide = Math.min(slides.length - 1, index + 1); render(); } }, "Next")
+      h("button", { type: "button", disabled: index === slides.length - 1, onclick: () => { state.analysisSlide = Math.min(slides.length - 1, index + 1); render(); } }, "Next KPI >")
     ])
   ]);
+}
+
+function kpiAnalysisData() {
+  const range = selectedKpiRange();
+  const allCases = casesForRange(range.start, range.end);
+  const cases = kpiIncludedCases(allCases);
+  const admin = kpiAdminForRange(range.start, range.end);
+  return {
+    range,
+    cases,
+    admin,
+    report: buildNabhKpiReport(cases, admin)
+  };
+}
+
+function genericKpiAnalysisSlide(result, data) {
+  const detail = kpiCaseAudit(result.no, data.cases, data.admin);
+  const pending = detail.eligible.filter((item) => !detail.isComplete(item));
+  const completed = detail.patientLevel === false ? result.denominator || 0 : detail.eligible.length - pending.length;
+  const eligible = detail.patientLevel === false ? result.denominator || 0 : detail.eligible.length;
+  const valueText = result.value || "--";
+  const numericValue = kpiResultNumeric(result);
+  const chartMax = kpiChartMax(result.no, numericValue || 0);
+  const width = numericValue == null || !chartMax ? 0 : Math.max(2, Math.min(100, Math.round((numericValue / chartMax) * 100)));
+  const pendingPreview = pending.slice(0, 8);
+  return analysisSlide(`KPI ${result.no}`, result.title, [
+    h("div", { class: "analysis-kpi-summary" }, [
+      analysisMetric("Result", valueText),
+      analysisMetric("Eligible", eligible),
+      analysisMetric("Completed", completed),
+      analysisMetric("Pending", detail.patientLevel === false ? "--" : pending.length),
+      analysisMetric("Numerator", result.numerator ?? "--"),
+      analysisMetric("Denominator", result.denominator ?? "--")
+    ]),
+    h("div", { class: "analysis-hero-grid" }, [
+      h("div", { class: "analysis-big-number" }, [
+        h("span", {}, "Current KPI Result"),
+        h("strong", {}, valueText),
+        h("small", {}, result.meta || "No denominator for this period"),
+        h("div", { class: "analysis-bar-track analysis-result-track" }, h("i", {
+          class: result.provisional ? "warn" : result.denominator ? "good" : "pending",
+          style: `width:${width}%`
+        }))
+      ]),
+      h("div", { class: "analysis-interpretation" }, [
+        h("h3", {}, "Presentation note"),
+        h("p", {}, analysisKpiNarrative(result, eligible, completed, pending.length)),
+        h("p", {}, detail.note || (detail.patientLevel === false
+          ? "This KPI is calculated from monthly admin inputs."
+          : "Patient-level completion is checked using the same logic as the KPI tab."))
+      ])
+    ]),
+    h("div", { class: "analysis-pending-box" }, [
+      h("h3", {}, detail.patientLevel === false ? "Admin input" : "Pending patient data"),
+      detail.patientLevel === false
+        ? h("p", {}, detail.note || "This KPI does not require a patient-level pending list.")
+        : pendingPreview.length
+          ? h("div", {}, pendingPreview.map((item, index) => h("button", {
+              type: "button",
+              onclick: () => go("timeline", item.id)
+            }, `${index + 1}. ${item.patientName || "Unnamed Patient"}: ${detail.missingFields(item).join(", ") || "Required KPI data pending"}`)))
+          : h("p", {}, eligible ? "No pending patient data detected for this KPI." : "No eligible patients in this reporting period."),
+      pending.length > pendingPreview.length ? h("p", {}, `Showing first ${pendingPreview.length} of ${pending.length} pending patients.`) : null
+    ])
+  ]);
+}
+
+function analysisKpiNarrative(result, eligible, completed, pending) {
+  if (!eligible && !result.denominator) return "No eligible cases or denominator are available for this reporting period.";
+  if (result.provisional) return `${pending} patient record${pending === 1 ? "" : "s"} still need completion before this KPI can be considered final.`;
+  if (pending > 0) return `${completed}/${eligible} eligible patient records are complete; remaining data should be reviewed.`;
+  return `This KPI is complete for the selected reporting period. Result: ${result.value || "--"}.`;
 }
 
 function kpi1AnalysisData() {

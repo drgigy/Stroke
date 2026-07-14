@@ -2477,13 +2477,16 @@ th {
 
 .analysis-dots {
   display: flex;
+  flex-wrap: wrap;
   justify-content: center;
-  gap: 8px;
+  gap: 6px;
+  max-height: 86px;
+  overflow: auto;
 }
 
 .analysis-dots button {
-  width: 38px;
-  min-height: 38px;
+  width: 34px;
+  min-height: 34px;
   padding: 0;
   border-radius: 999px;
   background: #eef1f7;
