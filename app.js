@@ -2518,6 +2518,8 @@ function derivedKpiData(item) {
   const stages = item.stages || {};
   const firstImagingStart = firstBrainImagingStartTime(item);
   const firstImagingPresentation = firstImagingPresentationTime(item);
+  const evtIndicated = item.kpi?.evtIndicated || (stages.mtDecided?.time ? "Yes" : "");
+  const evtNotIndicated = evtIndicated === "No";
   return {
     hospitalAdmissionTime: item.arrivalTime || "",
     dysphagiaScreening: stages.dysphagiaScreening?.time ? "Yes" : "",
@@ -2531,9 +2533,9 @@ function derivedKpiData(item) {
     strokeUnitDischargeTime: stages.strokeUnitDischarge?.time || "",
     dischargeTime: stages.hospitalDischarge?.time || "",
     ivtGiven: stages.ivtStarted?.time ? "Yes" : "",
-    evtIndicated: item.kpi?.evtIndicated || (stages.mtDecided?.time ? "Yes" : ""),
-    evtPerformed: stages.groinPuncture?.time || stages.firstPass?.time || stages.recanalisation?.time ? "Yes" : "",
-    largeVesselOcclusion: item.suspicion === "LVO Suspected" ? "Yes" : ""
+    evtIndicated,
+    evtPerformed: evtNotIndicated ? "Not applicable" : stages.groinPuncture?.time || stages.firstPass?.time || stages.recanalisation?.time ? "Yes" : "",
+    largeVesselOcclusion: evtNotIndicated ? "Not applicable" : item.suspicion === "LVO Suspected" ? "Yes" : ""
   };
 }
 
@@ -3807,8 +3809,14 @@ function updateEvtDecision(caseId, key, value) {
   if (key === "evtIndicated" && value === "Yes" && !item.kpi.evtPerformed) {
     item.kpi.evtPerformed = "Pending";
   }
+  if (key === "evtIndicated" && value === "Yes") {
+    if (item.kpi.largeVesselOcclusion === "Not applicable") item.kpi.largeVesselOcclusion = "";
+    if (item.kpi.evtPerformed === "Not applicable") item.kpi.evtPerformed = "Pending";
+  }
   if (key === "evtIndicated" && value === "No") {
     item.mt.notPerformedReason = "";
+    item.kpi.largeVesselOcclusion = "Not applicable";
+    item.kpi.evtPerformed = "Not applicable";
   }
   if (key === "evtPerformed" && value !== "No") {
     item.mt.notPerformedReason = "";
