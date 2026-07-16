@@ -1648,14 +1648,13 @@ function kpiAnalysisDeck() {
 }
 
 function togglePresentationFullscreen() {
-  const deck = document.querySelector(".analysis-deck");
-  if (!deck) return;
   const active = document.fullscreenElement || document.webkitFullscreenElement;
   if (active) {
     (document.exitFullscreen || document.webkitExitFullscreen)?.call(document);
     return;
   }
-  (deck.requestFullscreen || deck.webkitRequestFullscreen)?.call(deck);
+  const target = document.documentElement;
+  (target.requestFullscreen || target.webkitRequestFullscreen)?.call(target);
 }
 
 function kpiAnalysisData() {
