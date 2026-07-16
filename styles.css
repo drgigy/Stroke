@@ -2361,6 +2361,109 @@ th {
   gap: 14px;
 }
 
+.analysis-focus-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
+  gap: 14px;
+}
+
+.analysis-focus-card {
+  display: grid;
+  align-content: start;
+  gap: 10px;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.analysis-focus-card.red {
+  border-color: #ffc5cb;
+  background: #fff7f8;
+}
+
+.analysis-focus-card.green {
+  border-color: #c4efd9;
+  background: #f3fbf7;
+}
+
+.analysis-focus-card.orange {
+  border-color: #ffe0a8;
+  background: #fff9ec;
+}
+
+.analysis-focus-card.grey,
+.analysis-focus-card.quiet {
+  background: #f7f8fb;
+}
+
+.analysis-focus-card > span {
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 950;
+  text-transform: uppercase;
+}
+
+.analysis-focus-card h3 {
+  margin: 0;
+  color: var(--ink);
+  font-size: clamp(1.4rem, 2.3vw, 2.45rem);
+  line-height: 1.05;
+}
+
+.analysis-focus-card p,
+.analysis-focus-card li {
+  color: var(--muted);
+  font-size: 0.96rem;
+  font-weight: 850;
+  line-height: 1.35;
+}
+
+.analysis-focus-card ul {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding-left: 18px;
+}
+
+.analysis-mini-chart,
+.analysis-event-list {
+  display: grid;
+  gap: 8px;
+}
+
+.analysis-mini-row {
+  display: grid;
+  grid-template-columns: minmax(110px, 0.34fr) minmax(0, 1fr) 54px;
+  gap: 10px;
+  align-items: center;
+  font-weight: 900;
+}
+
+.analysis-mini-row span,
+.analysis-event-list span {
+  overflow: hidden;
+  color: var(--muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.analysis-mini-row strong {
+  color: var(--ink);
+  text-align: right;
+}
+
+.analysis-event-list > div {
+  display: grid;
+  grid-template-columns: minmax(130px, 0.55fr) minmax(0, 1fr);
+  gap: 10px;
+  align-items: center;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+}
+
 .analysis-big-number strong {
   display: block;
   margin: 10px 0;
@@ -2958,13 +3061,19 @@ th {
   }
 
   .analysis-kpi-summary,
-  .analysis-hero-grid {
+  .analysis-hero-grid,
+  .analysis-focus-grid {
     grid-template-columns: 1fr;
   }
 
-  .analysis-bar-row {
+  .analysis-bar-row,
+  .analysis-mini-row {
     grid-template-columns: minmax(90px, 0.42fr) minmax(0, 1fr) 50px;
     gap: 8px;
+  }
+
+  .analysis-event-list > div {
+    grid-template-columns: 1fr;
   }
 
   .cases-filter-modes,
