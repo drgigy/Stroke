@@ -317,6 +317,18 @@ window.addEventListener("appinstalled", () => {
   render();
 });
 
+window.addEventListener("keydown", (event) => {
+  if (state.view !== "analysis" || state.analysisMode !== "kpi") return;
+  if (event.key !== "ArrowRight" && event.key !== "ArrowLeft") return;
+  const total = buildNabhKpiReport(kpiIncludedCases(casesForRange(selectedKpiRange().start, selectedKpiRange().end)), kpiAdminForRange(selectedKpiRange().start, selectedKpiRange().end)).length;
+  if (!total) return;
+  event.preventDefault();
+  state.analysisSlide = event.key === "ArrowRight"
+    ? Math.min(total - 1, state.analysisSlide + 1)
+    : Math.max(0, state.analysisSlide - 1);
+  render();
+});
+
 initCloudSync();
 
 function loadCases() {
@@ -1617,7 +1629,10 @@ function kpiAnalysisDeck() {
         h("strong", {}, current ? `KPI ${current.no}` : "KPI Analysis"),
         h("span", {}, current ? current.title : `${index + 1} / ${slides.length}`)
       ]),
-      h("span", {}, `${formatReportDate(data.range.start)} to ${formatReportDate(data.range.end)}`)
+      h("div", { class: "analysis-deck-right" }, [
+        h("button", { type: "button", class: "analysis-present-btn", onclick: togglePresentationFullscreen }, "Present"),
+        h("span", {}, `${formatReportDate(data.range.start)} to ${formatReportDate(data.range.end)}`)
+      ])
     ]),
     h("div", { class: "analysis-slide-wrap" }, slides[index]),
     h("div", { class: "analysis-slide-controls" }, [
@@ -1630,6 +1645,17 @@ function kpiAnalysisDeck() {
       h("button", { type: "button", disabled: index === slides.length - 1, onclick: () => { state.analysisSlide = Math.min(slides.length - 1, index + 1); render(); } }, "Next KPI >")
     ])
   ]);
+}
+
+function togglePresentationFullscreen() {
+  const deck = document.querySelector(".analysis-deck");
+  if (!deck) return;
+  const active = document.fullscreenElement || document.webkitFullscreenElement;
+  if (active) {
+    (document.exitFullscreen || document.webkitExitFullscreen)?.call(document);
+    return;
+  }
+  (deck.requestFullscreen || deck.webkitRequestFullscreen)?.call(deck);
 }
 
 function kpiAnalysisData() {

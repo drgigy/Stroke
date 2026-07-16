@@ -2252,12 +2252,21 @@ th {
   text-align: center;
 }
 
+.analysis-deck-top .analysis-deck-right {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  justify-content: flex-end;
+  text-align: right;
+}
+
 .analysis-deck-top strong,
 .analysis-deck-top span {
   display: block;
 }
 
 .analysis-back-btn,
+.analysis-present-btn,
 .analysis-slide-controls button {
   min-height: 42px;
   padding: 0 18px;
@@ -2265,6 +2274,12 @@ th {
   background: #fff1f2;
   color: var(--purple);
   font-weight: 950;
+}
+
+.analysis-present-btn {
+  background: var(--purple);
+  color: #fff;
+  text-transform: uppercase;
 }
 
 .analysis-slide-controls button:disabled {
