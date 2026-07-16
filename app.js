@@ -1630,7 +1630,7 @@ function kpiAnalysisDeck() {
         h("span", {}, current ? current.title : `${index + 1} / ${slides.length}`)
       ]),
       h("div", { class: "analysis-deck-right" }, [
-        h("button", { type: "button", class: "analysis-present-btn", onclick: togglePresentationFullscreen }, "Present"),
+        h("button", { type: "button", class: "analysis-present-btn", onclick: togglePresentationFullscreen }, "Fullscreen"),
         h("span", {}, `${formatReportDate(data.range.start)} to ${formatReportDate(data.range.end)}`)
       ])
     ]),
