@@ -124,6 +124,7 @@ const kpiTimestampFields = [
   ["intracranialStrokeDeathTime", "Stroke/Death Time after Intracranial Procedure"]
 ];
 const timelineSyncedKpiTimestampKeys = new Set([
+  "strokeRecognitionTime",
   "diagnosticImagingRequestTime",
   "diagnosticImagingPresentationTime"
 ]);
@@ -2590,6 +2591,7 @@ function derivedKpiData(item) {
   const evtNotIndicated = evtIndicated === "No";
   return {
     hospitalAdmissionTime: item.arrivalTime || "",
+    strokeRecognitionTime: item.kpi?.strokePresentationType === "Inpatient stroke" ? stages.codeStroke?.time || "" : "",
     dysphagiaScreening: stages.dysphagiaScreening?.time ? "Yes" : "",
     diagnosticImagingRequestTime: stages.ctInformed?.time || "",
     diagnosticImagingPresentationTime: firstImagingPresentation,
