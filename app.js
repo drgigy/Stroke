@@ -1773,7 +1773,7 @@ function analysisTimingRows(no, cases) {
     1: { start: strokeReferenceTime, end: firstBrainImagingStartTime, target: 25, label: "First imaging" },
     4: { start: (item) => kpiValue(item, "strokeRecognitionTime"), end: (item) => stageTime(item, "initialOrders"), target: null, label: "Neuro assessment" },
     14: { start: (item) => kpiValue(item, "diagnosticImagingPresentationTime"), end: (item) => kpiValue(item, "diagnosticImagingStartTime") || firstBrainImagingStartTime(item), target: null, label: "Imaging wait" },
-    17: { start: (item) => stageTime(item, "arrival"), end: (item) => stageTime(item, "firstPass"), target: null, label: "EVT first pass" },
+    17: { start: (item) => stageTime(item, "arrival"), end: (item) => stageTime(item, "firstPass"), target: evtAnalysisTarget, label: "EVT first pass" },
     23: { start: (item) => stageTime(item, "arrival"), end: (item) => stageTime(item, "firstPass"), target: 150, label: "Arrival to first pass" },
     24: { start: (item) => stageTime(item, "groinPuncture"), end: (item) => stageTime(item, "recanalisation"), target: 60, label: "Groin to recan" }
   };
@@ -1784,10 +1784,17 @@ function analysisTimingRows(no, cases) {
     item,
     name: item.patientName || "Unnamed Patient",
     minutes: minutesBetween(config.start(item), config.end(item)),
-    target: config.target,
+    target: typeof config.target === "function" ? config.target(item) : config.target,
     label: config.label,
     complete: detail.isComplete(item)
   })).sort((a, b) => (b.minutes ?? -1) - (a.minutes ?? -1)).slice(0, 8);
+}
+
+function evtAnalysisTarget(item) {
+  const arrivalType = kpiValue(item, "evtArrivalType");
+  if (arrivalType === "Transfer") return 60;
+  if (arrivalType === "Direct arrival") return 90;
+  return null;
 }
 
 function analysisMiniTimingChart(no, rows) {
