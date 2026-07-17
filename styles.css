@@ -2227,8 +2227,8 @@ th {
   inset: 0;
   display: grid;
   grid-template-rows: auto minmax(0, 1fr) auto;
-  gap: 12px;
-  padding: 16px;
+  gap: 10px;
+  padding: 14px;
   background:
     radial-gradient(circle at 8% -8%, rgba(181, 18, 27, 0.12), transparent 30rem),
     linear-gradient(180deg, #fff 0%, #f8f9fc 100%);
@@ -2268,8 +2268,8 @@ th {
 .analysis-back-btn,
 .analysis-present-btn,
 .analysis-slide-controls button {
-  min-height: 42px;
-  padding: 0 18px;
+  min-height: 38px;
+  padding: 0 16px;
   border-radius: 8px;
   background: #fff1f2;
   color: var(--purple);
@@ -2289,14 +2289,17 @@ th {
 
 .analysis-slide-wrap {
   min-height: 0;
-  overflow: auto;
+  overflow: hidden;
 }
 
 .analysis-slide {
   display: grid;
-  gap: 18px;
-  min-height: 100%;
-  padding: 28px;
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
+  gap: 12px;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+  padding: 18px;
   border: 1px solid var(--line);
   border-radius: 10px;
   background: rgba(255, 255, 255, 0.94);
@@ -2305,7 +2308,7 @@ th {
 
 .analysis-slide-title {
   display: grid;
-  gap: 4px;
+  gap: 2px;
 }
 
 .analysis-slide-title span {
@@ -2317,21 +2320,21 @@ th {
 
 .analysis-slide-title h1 {
   margin: 0;
-  font-size: clamp(2rem, 4vw, 4rem);
+  font-size: clamp(1.7rem, 3.2vw, 3.35rem);
   line-height: 1;
 }
 
 .analysis-kpi-summary {
   display: grid;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
-  gap: 12px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
 }
 
 .analysis-metric,
 .analysis-big-number,
 .analysis-interpretation,
 .analysis-pending-box {
-  padding: 16px;
+  padding: 12px;
   border: 1px solid var(--line);
   border-radius: 8px;
   background: #fff;
@@ -2348,9 +2351,9 @@ th {
 
 .analysis-metric strong {
   display: block;
-  margin-top: 8px;
+  margin-top: 5px;
   color: var(--ink);
-  font-size: clamp(1.6rem, 3vw, 3rem);
+  font-size: clamp(1.25rem, 2.2vw, 2.25rem);
   font-weight: 950;
   line-height: 1;
 }
@@ -2370,8 +2373,10 @@ th {
 .analysis-focus-card {
   display: grid;
   align-content: start;
-  gap: 10px;
-  padding: 16px;
+  gap: 8px;
+  min-height: 0;
+  overflow: hidden;
+  padding: 14px;
   border: 1px solid var(--line);
   border-radius: 8px;
   background: #fff;
@@ -2407,16 +2412,16 @@ th {
 .analysis-focus-card h3 {
   margin: 0;
   color: var(--ink);
-  font-size: clamp(1.4rem, 2.3vw, 2.45rem);
+  font-size: clamp(1.25rem, 2vw, 2.05rem);
   line-height: 1.05;
 }
 
 .analysis-focus-card p,
 .analysis-focus-card li {
   color: var(--muted);
-  font-size: 0.96rem;
+  font-size: 0.9rem;
   font-weight: 850;
-  line-height: 1.35;
+  line-height: 1.25;
 }
 
 .analysis-focus-card ul {
@@ -2429,13 +2434,15 @@ th {
 .analysis-mini-chart,
 .analysis-event-list {
   display: grid;
-  gap: 8px;
+  gap: 6px;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .analysis-mini-row {
   display: grid;
   grid-template-columns: minmax(110px, 0.34fr) minmax(0, 1fr) 54px;
-  gap: 10px;
+  gap: 8px;
   align-items: center;
   font-weight: 900;
 }
@@ -2458,10 +2465,43 @@ th {
   grid-template-columns: minmax(130px, 0.55fr) minmax(0, 1fr);
   gap: 10px;
   align-items: center;
-  padding: 10px 12px;
+  padding: 8px 10px;
   border: 1px solid var(--line);
   border-radius: 8px;
   background: #fff;
+}
+
+.analysis-clean-card {
+  align-content: stretch;
+}
+
+.analysis-clean-strip {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.analysis-clean-strip > div {
+  padding: 10px;
+  border-radius: 8px;
+  background: #f7f8fb;
+}
+
+.analysis-clean-strip span {
+  display: block;
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 950;
+  text-transform: uppercase;
+}
+
+.analysis-clean-strip strong {
+  display: block;
+  margin-top: 4px;
+  color: var(--ink);
+  font-size: clamp(1.15rem, 1.8vw, 1.8rem);
+  line-height: 1;
 }
 
 .analysis-big-number strong {

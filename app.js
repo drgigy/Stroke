@@ -329,6 +329,14 @@ window.addEventListener("keydown", (event) => {
   render();
 });
 
+document.addEventListener("fullscreenchange", () => {
+  if (state.view === "analysis" && state.analysisMode === "kpi") render();
+});
+
+document.addEventListener("webkitfullscreenchange", () => {
+  if (state.view === "analysis" && state.analysisMode === "kpi") render();
+});
+
 initCloudSync();
 
 function loadCases() {
@@ -1614,6 +1622,7 @@ function kpiAnalysisDeck() {
   const index = Math.max(0, Math.min(state.analysisSlide, slides.length - 1));
   state.analysisSlide = index;
   const current = data.report[index];
+  const fullscreen = analysisFullscreenActive();
   return h("section", { class: "analysis-deck" }, [
     h("div", { class: "analysis-deck-top" }, [
       h("button", {
@@ -1630,7 +1639,7 @@ function kpiAnalysisDeck() {
         h("span", {}, current ? current.title : `${index + 1} / ${slides.length}`)
       ]),
       h("div", { class: "analysis-deck-right" }, [
-        h("button", { type: "button", class: "analysis-present-btn", onclick: togglePresentationFullscreen }, "Fullscreen"),
+        h("button", { type: "button", class: "analysis-present-btn", onclick: togglePresentationFullscreen }, fullscreen ? "Exit fullscreen" : "Fullscreen"),
         h("span", {}, `${formatReportDate(data.range.start)} to ${formatReportDate(data.range.end)}`)
       ])
     ]),
@@ -1644,11 +1653,15 @@ function kpiAnalysisDeck() {
       }, String(dotIndex + 1)))),
       h("button", { type: "button", disabled: index === slides.length - 1, onclick: () => { state.analysisSlide = Math.min(slides.length - 1, index + 1); render(); } }, "Next KPI >")
     ])
-  ]);
+]);
+}
+
+function analysisFullscreenActive() {
+  return Boolean(document.fullscreenElement || document.webkitFullscreenElement);
 }
 
 function togglePresentationFullscreen() {
-  const active = document.fullscreenElement || document.webkitFullscreenElement;
+  const active = analysisFullscreenActive();
   if (active) {
     (document.exitFullscreen || document.webkitExitFullscreen)?.call(document);
     return;
@@ -1676,40 +1689,16 @@ function genericKpiAnalysisSlide(result, data) {
   const completed = detail.patientLevel === false ? result.denominator || 0 : detail.eligible.length - pending.length;
   const eligible = detail.patientLevel === false ? result.denominator || 0 : detail.eligible.length;
   const valueText = result.value || "--";
-  const numericValue = kpiResultNumeric(result);
-  const chartMax = kpiChartMax(result.no, numericValue || 0);
-  const width = numericValue == null || !chartMax ? 0 : Math.max(2, Math.min(100, Math.round((numericValue / chartMax) * 100)));
-  const pendingPreview = pending.slice(0, 8);
-  const profile = kpiAnalysisProfile(result.no);
+  const pendingPreview = pending.slice(0, 4);
   return analysisSlide(`KPI ${result.no}`, result.title, [
     h("div", { class: "analysis-kpi-summary" }, [
       analysisMetric("Result", valueText),
       analysisMetric("Eligible", eligible),
       analysisMetric("Completed", completed),
-      analysisMetric("Pending", detail.patientLevel === false ? "--" : pending.length),
-      analysisMetric("Numerator", result.numerator ?? "--"),
-      analysisMetric("Denominator", result.denominator ?? "--")
+      analysisMetric("Pending", detail.patientLevel === false ? "--" : pending.length)
     ]),
-    h("div", { class: "analysis-hero-grid" }, [
-      h("div", { class: "analysis-big-number" }, [
-        h("span", {}, "Current KPI Result"),
-        h("strong", {}, valueText),
-        h("small", {}, result.meta || "No denominator for this period"),
-        h("div", { class: "analysis-bar-track analysis-result-track" }, h("i", {
-          class: result.provisional ? "warn" : result.denominator ? "good" : "pending",
-          style: `width:${width}%`
-        }))
-      ]),
-      h("div", { class: "analysis-interpretation" }, [
-        h("h3", {}, "Presentation note"),
-        h("p", {}, analysisKpiNarrative(result, eligible, completed, pending.length)),
-        h("p", {}, detail.note || (detail.patientLevel === false
-          ? "This KPI is calculated from monthly admin inputs."
-          : "Patient-level completion is checked using the same logic as the KPI tab."))
-      ])
-    ]),
-    analysisProfileSection(result, data, detail, profile),
-    h("div", { class: "analysis-pending-box" }, [
+    analysisMainVisual(result, data, detail, { eligible, completed, pending }),
+    pending.length ? h("div", { class: "analysis-pending-box analysis-pending-compact" }, [
       h("h3", {}, detail.patientLevel === false ? "Admin input" : "Pending patient data"),
       detail.patientLevel === false
         ? h("p", {}, detail.note || "This KPI does not require a patient-level pending list.")
@@ -1720,79 +1709,47 @@ function genericKpiAnalysisSlide(result, data) {
             }, `${index + 1}. ${item.patientName || "Unnamed Patient"}: ${detail.missingFields(item).join(", ") || "Required KPI data pending"}`)))
           : h("p", {}, eligible ? "No pending patient data detected for this KPI." : "No eligible patients in this reporting period."),
       pending.length > pendingPreview.length ? h("p", {}, `Showing first ${pendingPreview.length} of ${pending.length} pending patients.`) : null
+    ]) : null
+  ]);
+}
+
+function analysisMainVisual(result, data, detail, counts) {
+  const timingRows = analysisTimingRows(result.no, data.cases);
+  const eventRows = analysisEventRows(result.no, data.cases);
+  if (timingRows.length) return analysisMiniTimingChart(result.no, timingRows);
+  if (eventRows.length) return analysisEventList(result.no, eventRows);
+  return analysisKpiSnapshot(result, detail, counts);
+}
+
+function analysisKpiSnapshot(result, detail, counts) {
+  const label = analysisKpiVisualLabel(result.no);
+  const completeText = detail.patientLevel === false
+    ? (detail.note || result.meta || "Monthly admin input")
+    : `${counts.completed}/${counts.eligible} records complete`;
+  const statusText = result.meta || completeText;
+  return h("div", { class: "analysis-focus-card analysis-clean-card" }, [
+    h("span", {}, label),
+    h("h3", {}, result.value || "--"),
+    h("p", {}, statusText),
+    h("div", { class: "analysis-clean-strip" }, [
+      h("div", {}, [h("span", {}, "Complete"), h("strong", {}, counts.completed)]),
+      h("div", {}, [h("span", {}, "Pending"), h("strong", {}, detail.patientLevel === false ? "--" : counts.pending.length)]),
+      h("div", {}, [h("span", {}, "Status"), h("strong", {}, result.provisional ? "Pending" : "Final")])
     ])
   ]);
 }
 
-function kpiAnalysisProfile(no) {
-  const timing = [1, 4, 14, 17, 23, 24];
-  const treatment = [2, 17, 22, 23, 24];
-  const safety = [3, 8, 9, 10, 11, 12, 13, 16, 18, 20, 21];
-  const completion = [5, 6, 7, 19];
-  const rare = [10, 11, 20, 21];
-  const admin = [15];
-  if (admin.includes(no)) return { type: "Admin KPI", tone: "grey", focus: ["Monthly hospital-level input", "Stock-out numerator", "Formulary denominator"] };
-  if (timing.includes(no)) return { type: "Timing KPI", tone: "red", focus: ["Median / mean timing", "Delayed or invalid cases", "Patient-wise variation"] };
-  if (treatment.includes(no)) return { type: "Treatment pathway", tone: "green", focus: ["Eligible denominator", "Treatment achievement", "Missing workflow decisions"] };
-  if (safety.includes(no)) return { type: rare.includes(no) ? "Rare safety event" : "Safety event", tone: "orange", focus: ["Event count", "Denominator at risk", "Named event cases if present"] };
-  if (completion.includes(no)) return { type: "Completion / process", tone: "green", focus: ["Completed count", "Pending patients", "Documentation reliability"] };
-  return { type: "KPI summary", tone: "grey", focus: ["Result", "Denominator", "Pending data"] };
-}
-
-function analysisProfileSection(result, data, detail, profile) {
-  const timingRows = analysisTimingRows(result.no, data.cases);
-  const eventRows = analysisEventRows(result.no, data.cases);
-  return h("div", { class: "analysis-focus-grid" }, [
-    h("div", { class: `analysis-focus-card ${profile.tone}` }, [
-      h("span", {}, profile.type),
-      h("h3", {}, analysisPrimaryMessage(result, detail, timingRows, eventRows)),
-      h("ul", {}, profile.focus.map((item) => h("li", {}, item)))
-    ]),
-    timingRows.length
-      ? analysisMiniTimingChart(result.no, timingRows)
-      : eventRows.length
-        ? analysisEventList(eventRows)
-        : h("div", { class: "analysis-focus-card quiet" }, [
-            h("span", {}, "Presentation emphasis"),
-            h("h3", {}, analysisFallbackEmphasis(result, detail)),
-            h("p", {}, analysisKpiSpecificHint(result.no))
-          ])
-  ]);
-}
-
-function analysisPrimaryMessage(result, detail, timingRows, eventRows) {
-  if (result.no === 7) return "90-day outcome KPI; interpret separately from discharge-time performance.";
-  if (result.no === 15) return "This is a monthly admin KPI, not a patient-level pathway timestamp.";
-  if (!result.denominator && !detail.eligible.length) return "No eligible denominator in this reporting period.";
-  if (timingRows.length) {
-    const values = timingRows.map((row) => row.minutes).filter((value) => value != null && value >= 0);
-    return values.length ? `Median ${medianNumber(values)} min across ${values.length} timed case${values.length === 1 ? "" : "s"}.` : "Timing denominator exists, but patient timing is pending.";
-  }
-  if (eventRows.length) return `${eventRows.length} event case${eventRows.length === 1 ? "" : "s"} to review.`;
-  return result.provisional ? "Result is provisional until pending data is completed." : "Ready for presentation.";
-}
-
-function analysisFallbackEmphasis(result, detail) {
-  if (result.no === 15) return "Check stock-out and formulary counts for the selected month.";
-  if (!result.denominator && !detail.eligible.length) return "No eligible cases.";
-  if (result.provisional) return "Data completion is the main message.";
-  return "Show numerator, denominator, and current result.";
-}
-
-function analysisKpiSpecificHint(no) {
-  const hints = {
-    2: "Use this to discuss IVT door-to-needle performance at 45 and 60 minutes.",
-    5: "A simple completion slide works best: screened vs not screened.",
-    6: "Highlight delayed or missing physiotherapy assessment.",
-    7: "This may remain pending until 90-day follow-up is due.",
-    8: "If the denominator is missing, complete monthly medication-error opportunities.",
-    12: "Use stroke-unit patient days as the denominator.",
-    15: "Complete monthly admin inputs before presenting this KPI.",
-    16: "Present as falls per 1000 patient-days.",
-    19: "Useful as a speech/swallow workflow follow-up slide.",
-    22: "Show TICI distribution when EVT volume increases."
+function analysisKpiVisualLabel(no) {
+  const labels = {
+    2: "IVT performance",
+    5: "Dysphagia screening",
+    6: "Rehab assessment",
+    7: "90-day mRS outcome",
+    15: "Drug availability",
+    19: "Speech and swallow follow-up",
+    22: "TICI outcome"
   };
-  return hints[no] || "Use this slide to explain the KPI result and any missing patient data.";
+  return labels[no] || "KPI result";
 }
 
 function analysisTimingRows(no, cases) {
@@ -1814,7 +1771,7 @@ function analysisTimingRows(no, cases) {
     target: config.target,
     label: config.label,
     complete: detail.isComplete(item)
-  })).sort((a, b) => (b.minutes ?? -1) - (a.minutes ?? -1)).slice(0, 12);
+  })).sort((a, b) => (b.minutes ?? -1) - (a.minutes ?? -1)).slice(0, 8);
 }
 
 function analysisMiniTimingChart(no, rows) {
@@ -1858,12 +1815,12 @@ function analysisEventRows(no, cases) {
     name: item.patientName || "Unnamed Patient",
     date: formatCompactDate(new Date(item.arrivalTime)),
     detail: consultantCode(item.admittingConsultant)
-  })).slice(0, 8);
+  })).slice(0, 6);
 }
 
-function analysisEventList(rows) {
+function analysisEventList(no, rows) {
   return h("div", { class: "analysis-focus-card" }, [
-    h("span", {}, "Event cases"),
+    h("span", {}, analysisKpiVisualLabel(no) || "Event cases"),
     h("h3", {}, `${rows.length} case${rows.length === 1 ? "" : "s"} recorded`),
     h("div", { class: "analysis-event-list" }, rows.map((row) => h("div", {}, [
       h("strong", {}, row.name),
