@@ -1618,10 +1618,11 @@ function analysisScreen() {
 
 function kpiAnalysisDeck() {
   const data = kpiAnalysisData();
-  const slides = data.report.map((result) => genericKpiAnalysisSlide(result, data));
-  const index = Math.max(0, Math.min(state.analysisSlide, slides.length - 1));
+  const total = data.report.length;
+  const index = Math.max(0, Math.min(state.analysisSlide, total - 1));
   state.analysisSlide = index;
   const current = data.report[index];
+  const slide = current ? safeKpiAnalysisSlide(current, data) : empty("No KPI data available for this reporting period.");
   const fullscreen = analysisFullscreenActive();
   return h("section", { class: "analysis-deck" }, [
     h("div", { class: "analysis-deck-top" }, [
@@ -1636,24 +1637,39 @@ function kpiAnalysisDeck() {
       }, "Back"),
       h("div", {}, [
         h("strong", {}, current ? `KPI ${current.no}` : "KPI Analysis"),
-        h("span", {}, current ? current.title : `${index + 1} / ${slides.length}`)
+        h("span", {}, current ? current.title : `${index + 1} / ${total}`)
       ]),
       h("div", { class: "analysis-deck-right" }, [
         h("button", { type: "button", class: "analysis-present-btn", onclick: togglePresentationFullscreen }, fullscreen ? "Exit fullscreen" : "Fullscreen"),
         h("span", {}, `${formatReportDate(data.range.start)} to ${formatReportDate(data.range.end)}`)
       ])
     ]),
-    h("div", { class: "analysis-slide-wrap" }, slides[index]),
+    h("div", { class: "analysis-slide-wrap" }, slide),
     h("div", { class: "analysis-slide-controls" }, [
       h("button", { type: "button", disabled: index === 0, onclick: () => { state.analysisSlide = Math.max(0, index - 1); render(); } }, "< Previous KPI"),
-      h("div", { class: "analysis-dots" }, slides.map((_, dotIndex) => h("button", {
+      h("div", { class: "analysis-dots" }, data.report.map((_, dotIndex) => h("button", {
         type: "button",
         class: dotIndex === index ? "active" : "",
         onclick: () => { state.analysisSlide = dotIndex; render(); }
       }, String(dotIndex + 1)))),
-      h("button", { type: "button", disabled: index === slides.length - 1, onclick: () => { state.analysisSlide = Math.min(slides.length - 1, index + 1); render(); } }, "Next KPI >")
+      h("button", { type: "button", disabled: index === total - 1, onclick: () => { state.analysisSlide = Math.min(total - 1, index + 1); render(); } }, "Next KPI >")
     ])
 ]);
+}
+
+function safeKpiAnalysisSlide(result, data) {
+  try {
+    return genericKpiAnalysisSlide(result, data);
+  } catch (error) {
+    console.error("KPI analysis slide error", result?.no, error);
+    return analysisSlide(`KPI ${result?.no || ""}`, result?.title || "KPI analysis", [
+      h("div", { class: "analysis-focus-card analysis-clean-card" }, [
+        h("span", {}, "Slide needs review"),
+        h("h3", {}, "Unable to build this KPI slide"),
+        h("p", {}, "The KPI data is safe. This is only a presentation-view issue.")
+      ])
+    ]);
+  }
 }
 
 function analysisFullscreenActive() {
