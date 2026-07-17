@@ -555,7 +555,7 @@ function h(tag, attrs = {}, children = []) {
   });
   (Array.isArray(children) ? children : [children]).forEach((child) => {
     if (child == null) return;
-    node.appendChild(typeof child === "string" ? document.createTextNode(child) : child);
+    node.appendChild(child instanceof Node ? child : document.createTextNode(String(child)));
   });
   return node;
 }
