@@ -2292,6 +2292,10 @@ th {
   overflow: hidden;
 }
 
+.analysis-deck.analysis-expanded .analysis-slide-wrap {
+  overflow: auto;
+}
+
 .analysis-slide {
   display: grid;
   grid-template-rows: auto auto minmax(0, 1fr) auto;
@@ -2304,6 +2308,12 @@ th {
   border-radius: 10px;
   background: rgba(255, 255, 255, 0.94);
   box-shadow: 0 18px 56px rgba(34, 37, 56, 0.11);
+}
+
+.analysis-deck.analysis-expanded .analysis-slide {
+  height: auto;
+  min-height: 100%;
+  overflow: visible;
 }
 
 .analysis-slide-title {
@@ -2439,9 +2449,13 @@ th {
   overflow: hidden;
 }
 
+.analysis-mini-chart.expanded {
+  overflow: visible;
+}
+
 .analysis-mini-row {
   display: grid;
-  grid-template-columns: minmax(110px, 0.34fr) minmax(0, 1fr) 54px;
+  grid-template-columns: minmax(120px, 0.34fr) minmax(0, 1fr) 96px;
   gap: 8px;
   align-items: center;
   font-weight: 900;
@@ -2458,6 +2472,17 @@ th {
 .analysis-mini-row strong {
   color: var(--ink);
   text-align: right;
+  white-space: nowrap;
+}
+
+.analysis-extend-btn {
+  min-height: 34px;
+  border-radius: 8px;
+  background: #fff1f2;
+  color: var(--purple);
+  font-size: 0.82rem;
+  font-weight: 950;
+  text-transform: uppercase;
 }
 
 .analysis-event-list > div {
@@ -3108,7 +3133,7 @@ th {
 
   .analysis-bar-row,
   .analysis-mini-row {
-    grid-template-columns: minmax(90px, 0.42fr) minmax(0, 1fr) 50px;
+    grid-template-columns: minmax(90px, 0.42fr) minmax(0, 1fr) 78px;
     gap: 8px;
   }
 

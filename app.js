@@ -257,6 +257,7 @@ let state = {
   kpiRangeEnd: dateInputValue(new Date()),
   analysisMode: "menu",
   analysisSlide: 0,
+  analysisExpandedKpis: {},
   casesRangeMode: "month",
   casesKpiOnly: false,
   casesIvtOnly: false,
@@ -1624,7 +1625,8 @@ function kpiAnalysisDeck() {
   const current = data.report[index];
   const slide = current ? safeKpiAnalysisSlide(current, data) : empty("No KPI data available for this reporting period.");
   const fullscreen = analysisFullscreenActive();
-  return h("section", { class: "analysis-deck" }, [
+  const expanded = Boolean(state.analysisExpandedKpis[current?.no]);
+  return h("section", { class: `analysis-deck ${expanded ? "analysis-expanded" : ""}` }, [
     h("div", { class: "analysis-deck-top" }, [
       h("button", {
         type: "button",
@@ -1731,8 +1733,10 @@ function genericKpiAnalysisSlide(result, data) {
 
 function analysisMainVisual(result, data, detail, counts) {
   const timingRows = analysisTimingRows(result.no, data.cases);
+  const outcomeRows = analysisOutcomeRows(result.no, data.cases);
   const eventRows = analysisEventRows(result.no, data.cases);
   if (timingRows.length) return analysisMiniTimingChart(result.no, timingRows);
+  if (outcomeRows.length) return analysisOutcomeChart(result.no, outcomeRows);
   if (eventRows.length) return analysisEventList(result.no, eventRows);
   return analysisKpiSnapshot(result, detail, counts);
 }
@@ -1771,23 +1775,44 @@ function analysisKpiVisualLabel(no) {
 function analysisTimingRows(no, cases) {
   const configs = {
     1: { start: strokeReferenceTime, end: firstBrainImagingStartTime, target: 25, label: "First imaging" },
+    2: { start: (item) => stageTime(item, "arrival"), end: (item) => stageTime(item, "ivtStarted"), target: 60, warnAt: 45, label: "Door to IVT" },
     4: { start: (item) => kpiValue(item, "strokeRecognitionTime"), end: (item) => stageTime(item, "initialOrders"), target: null, label: "Neuro assessment" },
-    14: { start: (item) => kpiValue(item, "diagnosticImagingPresentationTime"), end: (item) => kpiValue(item, "diagnosticImagingStartTime") || firstBrainImagingStartTime(item), target: null, label: "Imaging wait" },
+    14: { start: (item) => kpiValue(item, "diagnosticImagingPresentationTime"), end: (item) => kpiValue(item, "diagnosticImagingStartTime") || firstBrainImagingStartTime(item), target: 30, warnAt: 15, label: "Imaging wait" },
     17: { start: (item) => stageTime(item, "arrival"), end: (item) => stageTime(item, "firstPass"), target: evtAnalysisTarget, label: "EVT first pass" },
-    23: { start: (item) => stageTime(item, "arrival"), end: (item) => stageTime(item, "firstPass"), target: 150, label: "Arrival to first pass" },
-    24: { start: (item) => stageTime(item, "groinPuncture"), end: (item) => stageTime(item, "recanalisation"), target: 60, label: "Groin to recan" }
+    23: {
+      start: (item) => stageTime(item, "arrival"),
+      end: (item) => stageTime(item, "firstPass"),
+      target: 150,
+      label: "Arrival to first pass",
+      detail: (item) => `TICI ${item.mt?.tici || "--"}`,
+      success: (item, minutes) => minutes != null && minutes <= 150 && ticiGood(item)
+    },
+    24: {
+      start: (item) => stageTime(item, "groinPuncture"),
+      end: (item) => stageTime(item, "recanalisation"),
+      target: 60,
+      label: "Groin to recan",
+      detail: (item) => `TICI ${item.mt?.tici || "--"}`,
+      success: (item, minutes) => minutes != null && minutes <= 60 && ticiGood(item)
+    }
   };
   const config = configs[no];
   if (!config) return [];
   const detail = kpiCaseAudit(no, cases, kpiAdminForRange(selectedKpiRange().start, selectedKpiRange().end));
-  return detail.eligible.map((item) => ({
-    item,
-    name: item.patientName || "Unnamed Patient",
-    minutes: minutesBetween(config.start(item), config.end(item)),
-    target: typeof config.target === "function" ? config.target(item) : config.target,
-    label: config.label,
-    complete: detail.isComplete(item)
-  })).sort((a, b) => (b.minutes ?? -1) - (a.minutes ?? -1)).slice(0, 8);
+  return detail.eligible.map((item) => {
+    const minutes = minutesBetween(config.start(item), config.end(item));
+    return {
+      item,
+      name: item.patientName || "Unnamed Patient",
+      minutes,
+      target: typeof config.target === "function" ? config.target(item) : config.target,
+      warnAt: config.warnAt,
+      label: config.label,
+      detail: config.detail?.(item) || "",
+      success: config.success ? config.success(item, minutes) : null,
+      complete: detail.isComplete(item)
+    };
+  }).sort((a, b) => (b.minutes ?? -1) - (a.minutes ?? -1));
 }
 
 function evtAnalysisTarget(item) {
@@ -1801,20 +1826,95 @@ function analysisMiniTimingChart(no, rows) {
   const values = rows.map((row) => row.minutes).filter((value) => value != null && value >= 0);
   const maxMinutes = Math.max(30, ...values, ...rows.map((row) => row.target || 0));
   const target = rows.find((row) => row.target)?.target;
+  const expanded = Boolean(state.analysisExpandedKpis[no]);
+  const visibleRows = expanded ? rows : rows.slice(0, 8);
   return h("div", { class: "analysis-focus-card" }, [
     h("span", {}, rows[0]?.label || "Timing"),
-    h("h3", {}, target ? `Target ${target} min` : "Patient-wise timing"),
-    h("div", { class: "analysis-mini-chart" }, rows.map((row) => {
+    h("h3", {}, analysisTimingHeading(no, target)),
+    h("div", { class: `analysis-mini-chart ${expanded ? "expanded" : ""}` }, visibleRows.map((row) => {
       const invalid = row.minutes != null && row.minutes < 0;
       const width = row.minutes == null || invalid ? 2 : Math.max(2, Math.min(100, Math.round((row.minutes / maxMinutes) * 100)));
-      const status = row.minutes == null ? "pending" : invalid || (row.target && row.minutes > row.target) ? "bad" : row.target && row.minutes > row.target * 0.8 ? "warn" : "good";
+      const status = analysisTimingStatus(row, invalid);
       return h("div", { class: "analysis-mini-row" }, [
         h("span", {}, row.name),
         h("div", { class: "analysis-bar-track" }, h("i", { class: status, style: `width:${width}%` })),
-        h("strong", {}, row.minutes == null ? "--" : invalid ? "Invalid" : `${row.minutes}m`)
+        h("strong", {}, row.minutes == null ? "--" : invalid ? "Invalid" : `${row.minutes}m${row.detail ? ` | ${row.detail}` : ""}`)
       ]);
     })),
-    h("p", {}, no === 17 ? "Direct and transfer EVT targets are interpreted by the KPI calculation." : "Longest bars identify patients for pathway review.")
+    rows.length > 8 ? h("button", {
+      type: "button",
+      class: "analysis-extend-btn",
+      onclick: () => {
+        state.analysisExpandedKpis[no] = !expanded;
+        render();
+      }
+    }, expanded ? "Show first 8 patients" : `Extend to show all ${rows.length} patients`) : null,
+    h("p", {}, analysisTimingFootnote(no))
+  ]);
+}
+
+function analysisTimingHeading(no, target) {
+  if (no === 2) return "45 and 60 minute bands";
+  if (no === 14) return "Delay bands";
+  if (no === 17) return "Direct 90 min | Transfer 60 min";
+  return target ? `Target ${target} min` : "Patient-wise timing";
+}
+
+function analysisTimingStatus(row, invalid) {
+  if (row.minutes == null) return "pending";
+  if (invalid) return "bad";
+  if (row.success === false) return "bad";
+  if (row.success === true) return "good";
+  if (row.target && row.minutes > row.target) return "bad";
+  if (row.warnAt && row.minutes > row.warnAt) return "warn";
+  if (row.target && row.minutes > row.target * 0.8) return "warn";
+  return "good";
+}
+
+function analysisTimingFootnote(no) {
+  if (no === 2) return "Green is within 45 minutes, amber is 46-60 minutes, red is beyond 60 minutes.";
+  if (no === 14) return "Presentation-only delay bands: green up to 15 minutes, amber 16-30 minutes, red beyond 30 minutes.";
+  if (no === 17) return "Direct and transfer EVT targets are interpreted by the KPI calculation.";
+  if (no === 23 || no === 24) return "Bars turn green only when both time and final TICI 2B+ criteria are met.";
+  return "Longest bars identify patients for pathway review.";
+}
+
+function analysisOutcomeRows(no, cases) {
+  if (no !== 22) return [];
+  const detail = kpiCaseAudit(no, cases, kpiAdminForRange(selectedKpiRange().start, selectedKpiRange().end));
+  const scoreWidth = { "0": 8, "1": 24, "2A": 45, "2B": 70, "2C": 85, "3": 100 };
+  return detail.eligible.map((item) => {
+    const score = item.mt?.tici || "";
+    return {
+      item,
+      name: item.patientName || "Unnamed Patient",
+      score,
+      width: score ? scoreWidth[score] || 8 : 2,
+      status: !score ? "pending" : ticiGood(item) ? "good" : "bad"
+    };
+  }).sort((a, b) => (a.score ? 0 : 1) - (b.score ? 0 : 1));
+}
+
+function analysisOutcomeChart(no, rows) {
+  const expanded = Boolean(state.analysisExpandedKpis[no]);
+  const visibleRows = expanded ? rows : rows.slice(0, 8);
+  return h("div", { class: "analysis-focus-card" }, [
+    h("span", {}, "TICI outcome"),
+    h("h3", {}, "TICI 2B+ target"),
+    h("div", { class: `analysis-mini-chart ${expanded ? "expanded" : ""}` }, visibleRows.map((row) => h("div", { class: "analysis-mini-row" }, [
+      h("span", {}, row.name),
+      h("div", { class: "analysis-bar-track" }, h("i", { class: row.status, style: `width:${row.width}%` })),
+      h("strong", {}, row.score ? `TICI ${row.score}` : "--")
+    ]))),
+    rows.length > 8 ? h("button", {
+      type: "button",
+      class: "analysis-extend-btn",
+      onclick: () => {
+        state.analysisExpandedKpis[no] = !expanded;
+        render();
+      }
+    }, expanded ? "Show first 8 patients" : `Extend to show all ${rows.length} patients`) : null,
+    h("p", {}, "Green indicates final TICI 2B, 2C, or 3 after reperfusion therapy.")
   ]);
 }
 
