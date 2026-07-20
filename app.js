@@ -258,7 +258,6 @@ let state = {
   kpiRangeEnd: dateInputValue(new Date()),
   analysisMode: "menu",
   analysisSlide: 0,
-  analysisExpandedKpis: {},
   casesRangeMode: "month",
   casesKpiOnly: false,
   casesIvtOnly: false,
@@ -1627,8 +1626,7 @@ function kpiAnalysisDeck() {
   const current = data.report[index];
   const slide = current ? safeKpiAnalysisSlide(current, data) : empty("No KPI data available for this reporting period.");
   const fullscreen = analysisFullscreenActive();
-  const expanded = Boolean(state.analysisExpandedKpis[current?.no]);
-  return h("section", { class: `analysis-deck ${expanded ? "analysis-expanded" : ""}` }, [
+  return h("section", { class: "analysis-deck analysis-scrollable" }, [
     h("div", { class: "analysis-deck-top" }, [
       h("button", {
         type: "button",
@@ -1840,12 +1838,10 @@ function analysisMiniTimingChart(no, rows) {
   const values = rows.map((row) => row.minutes).filter((value) => value != null && value >= 0);
   const maxMinutes = Math.max(30, ...values, ...rows.map((row) => row.target || 0));
   const target = rows.find((row) => row.target)?.target;
-  const expanded = Boolean(state.analysisExpandedKpis[no]);
-  const visibleRows = expanded ? rows : rows.slice(0, 8);
   return h("div", { class: "analysis-focus-card" }, [
     h("span", {}, rows[0]?.label || "Timing"),
     h("h3", {}, analysisTimingHeading(no, target)),
-    h("div", { class: `analysis-mini-chart ${expanded ? "expanded" : ""}` }, visibleRows.map((row) => {
+    h("div", { class: "analysis-mini-chart" }, rows.map((row) => {
       const invalid = row.minutes != null && row.minutes < 0;
       const width = row.minutes == null || invalid ? 2 : Math.max(2, Math.min(100, Math.round((row.minutes / maxMinutes) * 100)));
       const status = analysisTimingStatus(row, invalid);
@@ -1855,14 +1851,6 @@ function analysisMiniTimingChart(no, rows) {
         h("strong", {}, row.minutes == null ? "--" : invalid ? "Invalid" : `${row.minutes}m${row.detail ? ` | ${row.detail}` : ""}`)
       ]);
     })),
-    rows.length > 8 ? h("button", {
-      type: "button",
-      class: "analysis-extend-btn",
-      onclick: () => {
-        state.analysisExpandedKpis[no] = !expanded;
-        render();
-      }
-    }, expanded ? "Show first 8 patients" : `Extend to show all ${rows.length} patients`) : null,
     h("p", {}, analysisTimingFootnote(no))
   ]);
 }
@@ -1910,24 +1898,14 @@ function analysisOutcomeRows(no, cases) {
 }
 
 function analysisOutcomeChart(no, rows) {
-  const expanded = Boolean(state.analysisExpandedKpis[no]);
-  const visibleRows = expanded ? rows : rows.slice(0, 8);
   return h("div", { class: "analysis-focus-card" }, [
     h("span", {}, "TICI outcome"),
     h("h3", {}, "TICI 2B+ target"),
-    h("div", { class: `analysis-mini-chart ${expanded ? "expanded" : ""}` }, visibleRows.map((row) => h("div", { class: "analysis-mini-row" }, [
+    h("div", { class: "analysis-mini-chart" }, rows.map((row) => h("div", { class: "analysis-mini-row" }, [
       h("span", {}, row.name),
       h("div", { class: "analysis-bar-track" }, h("i", { class: row.status, style: `width:${row.width}%` })),
       h("strong", {}, row.score ? `TICI ${row.score}` : "--")
     ]))),
-    rows.length > 8 ? h("button", {
-      type: "button",
-      class: "analysis-extend-btn",
-      onclick: () => {
-        state.analysisExpandedKpis[no] = !expanded;
-        render();
-      }
-    }, expanded ? "Show first 8 patients" : `Extend to show all ${rows.length} patients`) : null,
     h("p", {}, "Green indicates final TICI 2B, 2C, or 3 after reperfusion therapy.")
   ]);
 }
