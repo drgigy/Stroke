@@ -23,7 +23,8 @@ const admittingConsultants = [
   ["suneesh-er", "Dr Suneesh ER", "SE"],
   ["arjun-chacko", "Dr Arjun Chacko", "AC"],
   ["jagathlal-gangadharan", "Dr Jagathlal Gangadharan", "JG"],
-  ["manoj-narayana-panicker", "Dr Manoj Narayana Panicker", "MN"]
+  ["manoj-narayana-panicker", "Dr Manoj Narayana Panicker", "MN"],
+  ["sreeram-prasad", "Dr Sreeram Prasad", "SP"]
 ];
 
 const imagingModalityOptions = [
