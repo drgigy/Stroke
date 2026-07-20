@@ -1758,32 +1758,32 @@ function analysisKpiVisualLabel(no) {
 
 function kpiAnalysisMeta(no) {
   const meta = {
-    1: { category: "Access & Timeliness", formula: "Average minutes from stroke reference time to first brain imaging start." },
-    2: { category: "Treatment & Reperfusion", formula: "IVT cases treated within 60 minutes / IVT eligible or IVT-given cases." },
-    3: { category: "Safety & Complications", formula: "sICH after IVT cases / IVT cases." },
-    4: { category: "Access & Timeliness", formula: "Average minutes from inpatient stroke recognition to detailed neurological assessment." },
-    5: { category: "Care Quality", formula: "Cases with dysphagia screening documented / eligible stroke cases." },
-    6: { category: "Care Quality", formula: "Cases with rehab assessment within 48 hours / eligible stroke cases." },
-    7: { category: "Outcome", formula: "Cases with 90-day mRS 0-2 / cases with 90-day mRS recorded." },
-    8: { category: "Safety & Complications", formula: "Medication error events / medication-opportunity denominator." },
-    9: { category: "Outcome", formula: "Deaths in hospital within 7 days / eligible stroke cases." },
-    10: { category: "Safety & Complications", formula: "Stroke or death within 30 days after CEA/carotid procedure / carotid procedure cases." },
-    11: { category: "Safety & Complications", formula: "Stroke or death within 24 hours after diagnostic angiography / angiography cases." },
-    12: { category: "Safety & Complications", formula: "New or worsening hospital pressure ulcers / stroke-unit patient days." },
-    13: { category: "Safety & Complications", formula: "DVT after admission cases / eligible stroke cases." },
-    14: { category: "Access & Timeliness", formula: "Average minutes from imaging service presentation to diagnostic imaging start." },
-    15: { category: "Care Quality", formula: "Thrombolytic-agent stock-out events / thrombolytic formulary drugs." },
-    16: { category: "Safety & Complications", formula: "Patient falls / stroke-unit patient days, reported per 1000 patient days." },
-    17: { category: "Treatment & Reperfusion", formula: "EVT-indicated ischemic stroke cases treated within defined EVT timeframe / EVT-indicated cases." },
-    18: { category: "Safety & Complications", formula: "sICH after EVT cases / EVT cases." },
-    19: { category: "Care Quality", formula: "Speech therapy dysphagia reassessment within 24 hours / eligible stroke cases." },
-    20: { category: "Safety & Complications", formula: "Stroke or death within 30 days after intracranial angioplasty/stenting / intracranial procedure cases." },
-    21: { category: "Safety & Complications", formula: "Ventriculitis cases / ischemic stroke patients who underwent EVD." },
-    22: { category: "Treatment & Reperfusion", formula: "Reperfusion therapy cases with final TICI 2B or higher / reperfusion therapy cases." },
-    23: { category: "Treatment & Reperfusion", formula: "LVO EVT cases with first pass within 150 minutes and TICI 2B+ / LVO EVT cases." },
-    24: { category: "Treatment & Reperfusion", formula: "EVT cases with TICI 2B+ within 60 minutes of groin puncture / EVT cases." }
+    1: { category: "Access & Timeliness", numerator: "Σ minutes from stroke reference time to first brain imaging start", denominator: "Number of eligible cases" },
+    2: { category: "Treatment & Reperfusion", numerator: "IVT cases treated within 60 minutes", denominator: "IVT eligible or IVT-given cases" },
+    3: { category: "Safety & Complications", numerator: "sICH after IVT cases", denominator: "IVT cases" },
+    4: { category: "Access & Timeliness", numerator: "Σ minutes from inpatient stroke recognition to neurological assessment", denominator: "Number of inpatient stroke cases" },
+    5: { category: "Care Quality", numerator: "Cases with dysphagia screening documented", denominator: "Eligible stroke cases" },
+    6: { category: "Care Quality", numerator: "Cases with rehab assessment within 48 hours", denominator: "Eligible stroke cases" },
+    7: { category: "Outcome", numerator: "Cases with 90-day mRS 0-2", denominator: "Cases with 90-day mRS recorded" },
+    8: { category: "Safety & Complications", numerator: "Medication error events", denominator: "Medication-opportunity denominator" },
+    9: { category: "Outcome", numerator: "Deaths in hospital within 7 days", denominator: "Eligible stroke cases" },
+    10: { category: "Safety & Complications", numerator: "Stroke or death within 30 days after CEA/carotid procedure", denominator: "Carotid procedure cases" },
+    11: { category: "Safety & Complications", numerator: "Stroke or death within 24 hours after diagnostic angiography", denominator: "Diagnostic angiography cases" },
+    12: { category: "Safety & Complications", numerator: "New or worsening hospital pressure ulcers", denominator: "Stroke-unit patient days" },
+    13: { category: "Safety & Complications", numerator: "DVT after admission cases", denominator: "Eligible stroke cases" },
+    14: { category: "Access & Timeliness", numerator: "Σ minutes from imaging-service presentation to diagnostic imaging start", denominator: "Number of eligible imaging cases" },
+    15: { category: "Care Quality", numerator: "Thrombolytic-agent stock-out events", denominator: "Thrombolytic formulary drugs" },
+    16: { category: "Safety & Complications", numerator: "Patient falls", denominator: "Stroke-unit patient days" },
+    17: { category: "Treatment & Reperfusion", numerator: "EVT-indicated cases treated within defined timeframe", denominator: "EVT-indicated ischemic stroke cases" },
+    18: { category: "Safety & Complications", numerator: "sICH after EVT cases", denominator: "EVT cases" },
+    19: { category: "Care Quality", numerator: "Speech therapy dysphagia reassessment within 24 hours", denominator: "Eligible stroke cases" },
+    20: { category: "Safety & Complications", numerator: "Stroke or death within 30 days after intracranial angioplasty/stenting", denominator: "Intracranial procedure cases" },
+    21: { category: "Safety & Complications", numerator: "Ventriculitis cases", denominator: "Ischemic stroke patients who underwent EVD" },
+    22: { category: "Treatment & Reperfusion", numerator: "Reperfusion therapy cases with final TICI 2B or higher", denominator: "Reperfusion therapy cases" },
+    23: { category: "Treatment & Reperfusion", numerator: "LVO EVT cases with first pass within 150 minutes and TICI 2B+", denominator: "LVO EVT cases" },
+    24: { category: "Treatment & Reperfusion", numerator: "EVT cases with TICI 2B+ within 60 minutes of groin puncture", denominator: "EVT cases" }
   };
-  return meta[no] || { category: "KPI", formula: "" };
+  return meta[no] || { category: "KPI", numerator: "", denominator: "" };
 }
 
 function analysisTimingRows(no, cases) {
@@ -2102,9 +2102,13 @@ function analysisSlide(kicker, headingText, body, meta = {}) {
         ]),
         h("h1", {}, headingText)
       ]),
-      meta.formula ? h("aside", { class: "analysis-formula-box" }, [
+      meta.numerator || meta.denominator ? h("aside", { class: "analysis-formula-box" }, [
         h("span", {}, "Formula"),
-        h("strong", {}, meta.formula)
+        h("div", { class: "analysis-formula-fraction" }, [
+          h("strong", {}, meta.numerator || "--"),
+          h("i", {}),
+          h("strong", {}, meta.denominator || "--")
+        ])
       ]) : null
     ]),
     ...body
