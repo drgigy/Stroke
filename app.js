@@ -1599,6 +1599,7 @@ function analysisScreen() {
   if (state.analysisMode === "kpi") return kpiAnalysisDeck();
   const range = selectedKpiRange();
   return h("section", { class: "analysis-screen" }, [
+    kpiRangeControls(),
     h("div", { class: "analysis-option-grid" }, [
       h("button", {
         type: "button",
@@ -1707,28 +1708,15 @@ function genericKpiAnalysisSlide(result, data) {
   const completed = detail.patientLevel === false ? result.denominator || 0 : detail.eligible.length - pending.length;
   const eligible = detail.patientLevel === false ? result.denominator || 0 : detail.eligible.length;
   const valueText = result.value || "--";
-  const pendingPreview = pending.slice(0, 4);
   return analysisSlide(`KPI ${result.no}`, result.title, [
     h("div", { class: "analysis-kpi-summary" }, [
-      analysisMetric("Result", valueText),
+      analysisMetric("Result", valueText, true),
       analysisMetric("Eligible", eligible),
       analysisMetric("Completed", completed),
       analysisMetric("Pending", detail.patientLevel === false ? "--" : pending.length)
     ]),
-    analysisMainVisual(result, data, detail, { eligible, completed, pending }),
-    pending.length ? h("div", { class: "analysis-pending-box analysis-pending-compact" }, [
-      h("h3", {}, detail.patientLevel === false ? "Admin input" : "Pending patient data"),
-      detail.patientLevel === false
-        ? h("p", {}, detail.note || "This KPI does not require a patient-level pending list.")
-        : pendingPreview.length
-          ? h("div", {}, pendingPreview.map((item, index) => h("button", {
-              type: "button",
-              onclick: () => go("timeline", item.id)
-            }, `${index + 1}. ${item.patientName || "Unnamed Patient"}: ${detail.missingFields(item).join(", ") || "Required KPI data pending"}`)))
-          : h("p", {}, eligible ? "No pending patient data detected for this KPI." : "No eligible patients in this reporting period."),
-      pending.length > pendingPreview.length ? h("p", {}, `Showing first ${pendingPreview.length} of ${pending.length} pending patients.`) : null
-    ]) : null
-  ]);
+    analysisMainVisual(result, data, detail, { eligible, completed, pending })
+  ], kpiAnalysisMeta(result.no));
 }
 
 function analysisMainVisual(result, data, detail, counts) {
@@ -1749,13 +1737,8 @@ function analysisKpiSnapshot(result, detail, counts) {
   const statusText = result.meta || completeText;
   return h("div", { class: "analysis-focus-card analysis-clean-card" }, [
     h("span", {}, label),
-    h("h3", {}, result.value || "--"),
-    h("p", {}, statusText),
-    h("div", { class: "analysis-clean-strip" }, [
-      h("div", {}, [h("span", {}, "Complete"), h("strong", {}, counts.completed)]),
-      h("div", {}, [h("span", {}, "Pending"), h("strong", {}, detail.patientLevel === false ? "--" : counts.pending.length)]),
-      h("div", {}, [h("span", {}, "Status"), h("strong", {}, result.provisional ? "Pending" : "Final")])
-    ])
+    h("h3", {}, result.provisional ? "Data pending" : "Ready for review"),
+    h("p", {}, statusText)
   ]);
 }
 
@@ -1770,6 +1753,36 @@ function analysisKpiVisualLabel(no) {
     22: "TICI outcome"
   };
   return labels[no] || "KPI result";
+}
+
+function kpiAnalysisMeta(no) {
+  const meta = {
+    1: { category: "Access & Timeliness", formula: "Average minutes from stroke reference time to first brain imaging start." },
+    2: { category: "Treatment & Reperfusion", formula: "IVT cases treated within 60 minutes / IVT eligible or IVT-given cases." },
+    3: { category: "Safety & Complications", formula: "sICH after IVT cases / IVT cases." },
+    4: { category: "Access & Timeliness", formula: "Average minutes from inpatient stroke recognition to detailed neurological assessment." },
+    5: { category: "Care Quality", formula: "Cases with dysphagia screening documented / eligible stroke cases." },
+    6: { category: "Care Quality", formula: "Cases with rehab assessment within 48 hours / eligible stroke cases." },
+    7: { category: "Outcome", formula: "Cases with 90-day mRS 0-2 / cases with 90-day mRS recorded." },
+    8: { category: "Safety & Complications", formula: "Medication error events / medication-opportunity denominator." },
+    9: { category: "Outcome", formula: "Deaths in hospital within 7 days / eligible stroke cases." },
+    10: { category: "Safety & Complications", formula: "Stroke or death within 30 days after CEA/carotid procedure / carotid procedure cases." },
+    11: { category: "Safety & Complications", formula: "Stroke or death within 24 hours after diagnostic angiography / angiography cases." },
+    12: { category: "Safety & Complications", formula: "New or worsening hospital pressure ulcers / stroke-unit patient days." },
+    13: { category: "Safety & Complications", formula: "DVT after admission cases / eligible stroke cases." },
+    14: { category: "Access & Timeliness", formula: "Average minutes from imaging service presentation to diagnostic imaging start." },
+    15: { category: "Care Quality", formula: "Thrombolytic-agent stock-out events / thrombolytic formulary drugs." },
+    16: { category: "Safety & Complications", formula: "Patient falls / stroke-unit patient days, reported per 1000 patient days." },
+    17: { category: "Treatment & Reperfusion", formula: "EVT-indicated ischemic stroke cases treated within defined EVT timeframe / EVT-indicated cases." },
+    18: { category: "Safety & Complications", formula: "sICH after EVT cases / EVT cases." },
+    19: { category: "Care Quality", formula: "Speech therapy dysphagia reassessment within 24 hours / eligible stroke cases." },
+    20: { category: "Safety & Complications", formula: "Stroke or death within 30 days after intracranial angioplasty/stenting / intracranial procedure cases." },
+    21: { category: "Safety & Complications", formula: "Ventriculitis cases / ischemic stroke patients who underwent EVD." },
+    22: { category: "Treatment & Reperfusion", formula: "Reperfusion therapy cases with final TICI 2B or higher / reperfusion therapy cases." },
+    23: { category: "Treatment & Reperfusion", formula: "LVO EVT cases with first pass within 150 minutes and TICI 2B+ / LVO EVT cases." },
+    24: { category: "Treatment & Reperfusion", formula: "EVT cases with TICI 2B+ within 60 minutes of groin puncture / EVT cases." }
+  };
+  return meta[no] || { category: "KPI", formula: "" };
 }
 
 function analysisTimingRows(no, cases) {
@@ -2078,18 +2091,27 @@ function kpi1DataQualitySlide(data) {
   ]);
 }
 
-function analysisSlide(kicker, headingText, body) {
+function analysisSlide(kicker, headingText, body, meta = {}) {
   return h("article", { class: "analysis-slide" }, [
     h("div", { class: "analysis-slide-title" }, [
-      h("span", {}, kicker),
-      h("h1", {}, headingText)
+      h("div", {}, [
+        h("span", {}, [
+          kicker,
+          meta.category ? h("em", {}, meta.category) : null
+        ]),
+        h("h1", {}, headingText)
+      ]),
+      meta.formula ? h("aside", { class: "analysis-formula-box" }, [
+        h("span", {}, "Formula"),
+        h("strong", {}, meta.formula)
+      ]) : null
     ]),
     ...body
   ]);
 }
 
-function analysisMetric(label, value) {
-  return h("div", { class: "analysis-metric" }, [
+function analysisMetric(label, value, featured = false) {
+  return h("div", { class: `analysis-metric ${featured ? "featured" : ""}` }, [
     h("span", {}, label),
     h("strong", {}, String(value))
   ]);
