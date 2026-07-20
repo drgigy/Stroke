@@ -2104,12 +2104,15 @@ function analysisSlide(kicker, headingText, body, meta = {}) {
       ]),
       meta.numerator || meta.denominator ? h("aside", { class: "analysis-formula-box" }, [
         h("span", {}, "Formula"),
-        h("div", { class: "analysis-formula-fraction" }, [
-          h("strong", {}, meta.numerator || "--"),
-          h("i", {}),
-          h("strong", {}, meta.denominator || "--")
+        h("div", { class: "analysis-formula-row" }, [
+          h("div", { class: "analysis-formula-fraction" }, [
+            h("strong", {}, meta.numerator || "--"),
+            h("i", {}),
+            h("strong", {}, meta.denominator || "--")
+          ]),
+          meta.multiplier ? h("b", { class: "analysis-formula-multiplier" }, meta.multiplier) : null
         ])
-      ].concat(meta.multiplier ? [h("b", { class: "analysis-formula-multiplier" }, meta.multiplier)] : [])) : null
+      ]) : null
     ]),
     ...body
   ]);
