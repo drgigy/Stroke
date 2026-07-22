@@ -238,6 +238,7 @@ let state = {
   noteTarget: null,
   stopTarget: null,
   kpiTarget: null,
+  kpiDraft: null,
   device: loadDeviceIdentity(),
   deviceStatus: "checking",
   deviceRecord: null,
@@ -562,6 +563,7 @@ function h(tag, attrs = {}, children = []) {
 }
 
 function render() {
+  captureKpiDraftFromDom();
   const app = document.querySelector("#app");
   const active = document.activeElement;
   if (state.deviceStatus !== "approved" && active?.closest?.(".device-request-form")) return;
@@ -3571,8 +3573,88 @@ function stopModal() {
 }
 
 function openKpi(caseId) {
+  const item = state.cases.find((entry) => entry.id === caseId);
+  if (!item) return;
   state.kpiTarget = { caseId };
+  state.kpiDraft = buildKpiDraft(item);
   render();
+}
+
+function buildKpiDraft(item) {
+  const kpi = { ...defaultKpiData(), ...ensureKpiData(item) };
+  kpiTimestampFields.forEach(([key]) => {
+    kpi[key] = kpiLocalValue(kpi[key]);
+  });
+  if (kpiFieldStatus(item, "mrs90Days") === "pending") kpi.mrs90Days = "Pending";
+  return {
+    caseId: item.id,
+    kpi,
+    kpiFieldStatus: { ...(item.kpiFieldStatus || {}) }
+  };
+}
+
+function currentKpiDraft(item) {
+  if (!state.kpiDraft || state.kpiDraft.caseId !== item.id) {
+    state.kpiDraft = buildKpiDraft(item);
+  }
+  return state.kpiDraft;
+}
+
+function captureKpiDraftFromDom() {
+  if (!state.kpiTarget) return;
+  const formEl = document.querySelector(".kpi-modal");
+  if (!formEl) return;
+  const form = new FormData(formEl);
+  const draft = state.kpiDraft && state.kpiDraft.caseId === state.kpiTarget.caseId
+    ? state.kpiDraft
+    : { caseId: state.kpiTarget.caseId, kpi: { ...defaultKpiData() }, kpiFieldStatus: {} };
+  draft.kpi = { ...defaultKpiData(), ...(draft.kpi || {}) };
+  draft.kpiFieldStatus = { ...(draft.kpiFieldStatus || {}) };
+  kpiTimestampFields.forEach(([key]) => {
+    draft.kpi[key] = form.get(key) || "";
+    const status = form.get(`${key}__status`) || "";
+    if (status === "na") draft.kpiFieldStatus[key] = "na";
+    else delete draft.kpiFieldStatus[key];
+  });
+  [...kpiYesNoFields.filter(([key]) => !workflowKpiKeys.has(key)), ...kpiScoreFields, ...kpiNumberFields].forEach(([key]) => {
+    const value = form.get(key) || "";
+    draft.kpi[key] = value;
+    if (key === "mrs90Days") {
+      if (value === "Pending") draft.kpiFieldStatus[key] = "pending";
+      else delete draft.kpiFieldStatus[key];
+    }
+  });
+  state.kpiDraft = draft;
+}
+
+function applyKpiDraftToCase(item, draft) {
+  const kpi = draft?.kpi || {};
+  const status = draft?.kpiFieldStatus || {};
+  item.kpi = { ...defaultKpiData(), ...(item.kpi || {}) };
+  item.kpiFieldStatus = { ...(item.kpiFieldStatus || {}) };
+  const presentationType = kpi.strokePresentationType || kpiValue(item, "strokePresentationType");
+  kpiTimestampFields.forEach(([key]) => {
+    const notApplicable = key === "strokeRecognitionTime"
+      ? presentationType !== "Inpatient stroke"
+      : status[key] === "na";
+    if (notApplicable) {
+      item.kpi[key] = "";
+      item.kpiFieldStatus[key] = "na";
+    } else {
+      item.kpi[key] = kpi[key] ? new Date(kpi[key]).toISOString() : "";
+      delete item.kpiFieldStatus[key];
+    }
+  });
+  [...kpiYesNoFields.filter(([key]) => !workflowKpiKeys.has(key)), ...kpiScoreFields, ...kpiNumberFields].forEach(([key]) => {
+    const value = kpi[key] || "";
+    if (key === "mrs90Days" && value === "Pending") {
+      item.kpi[key] = "";
+      item.kpiFieldStatus[key] = "pending";
+    } else {
+      item.kpi[key] = value;
+      if (key === "mrs90Days") delete item.kpiFieldStatus[key];
+    }
+  });
 }
 
 function kpiModal() {
@@ -3580,45 +3662,23 @@ function kpiModal() {
   const item = state.cases.find((entry) => entry.id === state.kpiTarget.caseId);
   if (!item) {
     state.kpiTarget = null;
+    state.kpiDraft = null;
     return null;
   }
-  const kpi = ensureKpiData(item);
+  const draft = currentKpiDraft(item);
+  const kpi = draft.kpi;
   const progress = kpiCompletion(item);
   return h("div", { class: "modal-backdrop kpi-backdrop" }, [
     h("form", {
       class: "modal kpi-modal",
       onsubmit: (event) => {
         event.preventDefault();
-        const form = new FormData(event.currentTarget);
-        item.kpi = { ...defaultKpiData(), ...(item.kpi || {}) };
-        item.kpiFieldStatus = { ...(item.kpiFieldStatus || {}) };
-        const presentationType = form.get("strokePresentationType") || kpiValue(item, "strokePresentationType");
-        kpiTimestampFields.forEach(([key]) => {
-          const value = form.get(key);
-          const notApplicable = key === "strokeRecognitionTime"
-            ? presentationType !== "Inpatient stroke"
-            : form.get(`${key}__status`) === "na";
-          if (notApplicable) {
-            item.kpi[key] = "";
-            item.kpiFieldStatus[key] = "na";
-          } else {
-            item.kpi[key] = value ? new Date(value).toISOString() : "";
-            delete item.kpiFieldStatus[key];
-          }
-        });
-        [...kpiYesNoFields.filter(([key]) => !workflowKpiKeys.has(key)), ...kpiScoreFields, ...kpiNumberFields].forEach(([key]) => {
-          const value = form.get(key) || "";
-          if (key === "mrs90Days" && value === "Pending") {
-            item.kpi[key] = "";
-            item.kpiFieldStatus[key] = "pending";
-          } else {
-            item.kpi[key] = value;
-            if (key === "mrs90Days") delete item.kpiFieldStatus[key];
-          }
-        });
+        captureKpiDraftFromDom();
+        applyKpiDraftToCase(item, state.kpiDraft);
         item.kpiUpdatedAt = new Date().toISOString();
         saveCases();
         state.kpiTarget = null;
+        state.kpiDraft = null;
         render();
       }
     }, [
@@ -3630,7 +3690,7 @@ function kpiModal() {
         h("span", { class: "tag grey" }, `${progress.completed}/${progress.total}`)
       ]),
       h("div", { class: "kpi-scroll" }, [
-        kpiSection("Timestamp Fields", kpiTimestampFields.map(([key, label]) => kpiTimestampField(item, kpi, key, label))),
+        kpiSection("Timestamp Fields", kpiTimestampFields.map(([key, label]) => kpiTimestampField(item, kpi, draft.kpiFieldStatus, key, label))),
         kpiSection("Treatment and Outcome Fields", kpiYesNoFields
           .filter(([key]) => !workflowKpiKeys.has(key))
           .map(([key, label]) => field(label, choiceButtons(key, kpiAnswerOptions, kpi[key] || "")))),
@@ -3642,24 +3702,25 @@ function kpiModal() {
         }))
       ]),
       h("div", { class: "modal-actions" }, [
-        h("button", { type: "button", class: "secondary-btn", onclick: () => { state.kpiTarget = null; render(); } }, "CANCEL"),
+        h("button", { type: "button", class: "secondary-btn", onclick: () => { state.kpiTarget = null; state.kpiDraft = null; render(); } }, "CANCEL"),
         h("button", { class: "record-btn", type: "submit" }, "SAVE KPI")
       ])
     ])
   ]);
 }
 
-function kpiTimestampField(item, kpi, key, label) {
-  const inpatientRecognition = key === "strokeRecognitionTime" && kpiValue(item, "strokePresentationType") === "Inpatient stroke";
+function kpiTimestampField(item, kpi, status, key, label) {
+  const presentationType = kpi.strokePresentationType || kpiValue(item, "strokePresentationType");
+  const inpatientRecognition = key === "strokeRecognitionTime" && presentationType === "Inpatient stroke";
   const automaticNotApplicable = key === "strokeRecognitionTime" && !inpatientRecognition;
-  const notApplicable = automaticNotApplicable || kpiFieldStatus(item, key) === "na";
+  const notApplicable = automaticNotApplicable || status?.[key] === "na";
   return h("div", { class: "field kpi-timestamp-field" }, [
     h("label", {}, label),
     h("div", { class: "kpi-timestamp-control" }, [
       h("input", {
         type: "datetime-local",
         name: key,
-        value: notApplicable ? "" : kpiLocalValue(kpi[key]),
+        value: notApplicable ? "" : kpi[key] || "",
         disabled: notApplicable
       }),
       h("input", { type: "hidden", name: `${key}__status`, value: notApplicable ? "na" : "" }),
