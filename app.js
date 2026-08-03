@@ -1754,7 +1754,7 @@ function patientAnalysisDetail(item) {
     ]),
     h("div", { class: "analysis-patient-metrics" }, [
       analysisMetric("LSN", item.lastSeenNormalTime ? formatCaseDateTime(item.lastSeenNormalTime) : "--"),
-      analysisMetric("Duration", elapsedSince(item.arrivalTime, item.caseStoppedAt || item.signedOffAt || new Date().toISOString())),
+      analysisMetric("Duration", patientAnalysisDuration(item)),
       analysisMetric("Manual entries", audit.manualCount),
       analysisMetric("Notes", audit.notesCount)
     ]),
@@ -1785,6 +1785,16 @@ function patientAnalysisDetail(item) {
       ])))
     ])
   ]);
+}
+
+function patientAnalysisDuration(item) {
+  const start = stageTime(item, "arrival") || item.arrivalTime;
+  const end = item.caseStoppedAt || item.signedOffAt || new Date().toISOString();
+  const minutes = minutesBetween(start, end);
+  if (minutes == null) return "--";
+  const hours = Math.floor(minutes / 60);
+  const remainder = minutes % 60;
+  return hours ? `${hours}h ${remainder}m` : `${remainder}m`;
 }
 
 function patientTimelineRows(item) {
