@@ -1379,6 +1379,7 @@ function signoffPanel(item, missing) {
       event.preventDefault();
       const form = new FormData(event.currentTarget);
       item.observerName = form.get("observerName").trim();
+      item.lastSeenNormalTime = form.get("lastSeenNormalTime") ? new Date(form.get("lastSeenNormalTime")).toISOString() : "";
       item.caseComment = form.get("caseComment").trim();
       item.admittingConsultant = form.get("admittingConsultant") || "";
       item.includeInCodeStrokeKpi = item.includeInCodeStrokeKpi || "";
@@ -1395,11 +1396,15 @@ function signoffPanel(item, missing) {
   }, [
     h("div", { class: "section-heading compact-heading" }, [h("h2", {}, "Final Sign-off")]),
     field("Data entered by", h("input", { name: "observerName", placeholder: "Name of observer / intern / coordinator", value: item.observerName || "" })),
+    field("Last Seen Normal", h("input", { type: "datetime-local", name: "lastSeenNormalTime", value: kpiLocalValue(item.lastSeenNormalTime || "") })),
     field("Overall case comments", h("textarea", { name: "caseComment", placeholder: "Add final comments about delays, clinical decision, consent, transfer, or pathway issues" }, item.caseComment || "")),
     field("Admitted under", consultantSelect(item.admittingConsultant || "")),
     optionField("Include in Code Stroke KPI?", "includeInCodeStrokeKpi", item.includeInCodeStrokeKpi || "", ["Yes", "No"], (value) => {
       const form = document.querySelector(".signoff-card");
       item.observerName = form?.querySelector("[name='observerName']")?.value.trim() || item.observerName || "";
+      item.lastSeenNormalTime = form?.querySelector("[name='lastSeenNormalTime']")?.value
+        ? new Date(form.querySelector("[name='lastSeenNormalTime']").value).toISOString()
+        : item.lastSeenNormalTime || "";
       item.caseComment = form?.querySelector("[name='caseComment']")?.value.trim() || item.caseComment || "";
       item.admittingConsultant = form?.querySelector("[name='admittingConsultant']")?.value || item.admittingConsultant || "";
       item.includeInCodeStrokeKpi = value;
@@ -1434,6 +1439,11 @@ function handlePendingClick(caseId, entry) {
   }
   if (entry.type === "consultant") {
     const input = document.querySelector("[name='admittingConsultant']");
+    if (input) input.focus();
+    return;
+  }
+  if (entry.type === "signoff") {
+    const input = document.querySelector("[name='lastSeenNormalTime']");
     if (input) input.focus();
     return;
   }
@@ -3994,7 +4004,7 @@ function dashboardPrintPages(cases) {
 function dashboardCaseTable(cases, totalCount, offset, extraClass = "") {
   const rows = cases.map((item, index) => dashboardCaseRow(item, totalCount - offset - index));
   return h("table", { class: `dashboard-case-table ${extraClass}`.trim() }, [
-    h("thead", {}, h("tr", {}, ["#", "Doc", "Date", "Name", "UHID", "Age/Sex", "AT", "D -> CT", "D -> MRI", "D -> IVT", "D -> GR", "D -> RE", "G -> RE"].map((text) => h("th", {}, text)))),
+    h("thead", {}, h("tr", {}, ["#", "Doc", "Date", "Name", "UHID", "Age/Sex", "AT", "D -> CT", "D -> MRI", "D -> IVT", "D -> GR", "D -> RE", "G -> RE", "LSN -> IVT", "LSN -> RE"].map((text) => h("th", {}, text)))),
     h("tbody", {}, rows)
   ]);
 }
@@ -4014,8 +4024,17 @@ function dashboardCaseRow(item, displayNumber) {
     h("td", {}, isIvtSkipped(item) ? "N/A" : metricText(item, "doorIvt")),
     h("td", {}, metricText(item, "doorGroin")),
     h("td", {}, metricText(item, "doorRecan")),
-    h("td", {}, metricText(item, "groinRecan"))
+    h("td", {}, metricText(item, "groinRecan")),
+    h("td", {}, lsnMetricText(item, "ivtStarted")),
+    h("td", {}, lsnMetricText(item, "recanalisation"))
   ]);
+}
+
+function lsnMetricText(item, stageId) {
+  if (!item.lastSeenNormalTime) return "--";
+  if (stageId === "ivtStarted" && isIvtSkipped(item)) return "N/A";
+  const minutes = minutesBetween(item.lastSeenNormalTime, stageTime(item, stageId));
+  return minutes == null ? "--" : `${minutes} min`;
 }
 
 function dashboardImagingTime(item, modality) {
@@ -4242,6 +4261,7 @@ function mtWorkflowState(item) {
 function signoffMissingItems(item) {
   const missing = [];
   if (!item.observerName?.trim()) missing.push({ label: "Data entered by", type: "observer" });
+  if (!item.lastSeenNormalTime) missing.push({ label: "Last Seen Normal", type: "signoff" });
   if (!item.admittingConsultant && (!item.signedOffAt || item.signoffAttempted)) missing.push({ label: "Admitted under", type: "consultant" });
   if (!["Yes", "No"].includes(item.includeInCodeStrokeKpi || "")) missing.push({ label: "Include in Code Stroke KPI?", type: "kpiInclude" });
   if (!item.patientName || item.patientName === "Unnamed Patient") missing.push({ label: "Patient Name", type: "details" });

@@ -1891,7 +1891,7 @@ table {
 }
 
 .dashboard-case-table {
-  min-width: 1080px;
+  min-width: 1220px;
   table-layout: fixed;
 }
 
@@ -1933,8 +1933,8 @@ table {
 
 .dashboard-case-table th:nth-child(4),
 .dashboard-case-table td:nth-child(4) {
-  width: 230px;
-  max-width: 230px;
+  width: 190px;
+  max-width: 190px;
   overflow: hidden;
   text-overflow: ellipsis;
   font-weight: 800;
@@ -1956,8 +1956,8 @@ table {
 
 .dashboard-case-table th:nth-child(n+7),
 .dashboard-case-table td:nth-child(n+7) {
-  width: 70px;
-  max-width: 70px;
+  width: 66px;
+  max-width: 66px;
   text-align: center;
 }
 
@@ -3444,12 +3444,12 @@ th {
 
   .dashboard-print-table th:nth-child(4),
   .dashboard-print-table td:nth-child(4) {
-    width: 18%;
+    width: 15%;
   }
 
   .dashboard-print-table th:nth-child(5),
   .dashboard-print-table td:nth-child(5) {
-    width: 7%;
+    width: 6%;
   }
 
   .dashboard-print-table th:nth-child(6),
@@ -3459,7 +3459,7 @@ th {
 
   .dashboard-print-table th:nth-child(n+7),
   .dashboard-print-table td:nth-child(n+7) {
-    width: 7.57%;
+    width: 5.9%;
   }
 
   .dashboard-print-table .performance-row td:first-child {
