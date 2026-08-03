@@ -2251,6 +2251,149 @@ th {
   font-weight: 850;
 }
 
+.patient-analysis-screen {
+  gap: 14px;
+}
+
+.analysis-patient-top,
+.analysis-patient-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.analysis-patient-top > div,
+.analysis-patient-summary > div {
+  display: grid;
+  gap: 4px;
+}
+
+.analysis-patient-top span,
+.analysis-patient-summary span {
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 950;
+  text-transform: uppercase;
+}
+
+.analysis-patient-top strong,
+.analysis-patient-summary h2 {
+  color: var(--ink);
+  font-size: 1.35rem;
+  font-weight: 950;
+}
+
+.analysis-patient-search {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 180px;
+  gap: 12px;
+  align-items: end;
+}
+
+.analysis-patient-list,
+.analysis-patient-detail,
+.analysis-timeline-list {
+  display: grid;
+  gap: 10px;
+}
+
+.analysis-patient-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 16px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--ink);
+  text-align: left;
+}
+
+.analysis-patient-row > div {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+}
+
+.analysis-patient-row strong {
+  font-size: 1rem;
+  font-weight: 950;
+}
+
+.analysis-patient-row span,
+.analysis-patient-row em,
+.analysis-patient-summary p {
+  color: var(--muted);
+  font-style: normal;
+  font-weight: 850;
+}
+
+.analysis-patient-summary,
+.analysis-patient-results,
+.analysis-timeline-card {
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: var(--shadow);
+}
+
+.analysis-patient-metrics {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.analysis-timeline-row {
+  display: grid;
+  grid-template-columns: 92px minmax(0, 1fr);
+  gap: 14px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-left: 5px solid var(--green);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.analysis-timeline-row.pending {
+  border-left-color: var(--muted);
+  background: #f8f9fc;
+}
+
+.analysis-timeline-row time {
+  color: var(--ink);
+  font-weight: 950;
+}
+
+.analysis-timeline-row > div {
+  display: grid;
+  gap: 3px;
+}
+
+.analysis-timeline-row strong {
+  color: var(--ink);
+  font-weight: 950;
+}
+
+.analysis-timeline-row span,
+.analysis-timeline-row em {
+  color: var(--muted);
+  font-style: normal;
+  font-weight: 850;
+}
+
+.analysis-timeline-row p {
+  margin-top: 4px;
+  padding: 9px 10px;
+  border-left: 3px solid var(--orange);
+  border-radius: 6px;
+  background: #fff8ed;
+  color: var(--ink);
+  font-weight: 750;
+}
+
 .analysis-deck {
   position: fixed;
   z-index: 80;

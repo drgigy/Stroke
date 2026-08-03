@@ -259,6 +259,8 @@ let state = {
   kpiRangeEnd: dateInputValue(new Date()),
   analysisMode: "menu",
   analysisSlide: 0,
+  analysisPatientQuery: "",
+  analysisPatientId: "",
   casesRangeMode: "month",
   casesKpiOnly: false,
   casesIvtOnly: false,
@@ -1609,6 +1611,7 @@ function kpiScreen() {
 
 function analysisScreen() {
   if (state.analysisMode === "kpi") return kpiAnalysisDeck();
+  if (state.analysisMode === "patient") return patientAnalysisScreen();
   const range = selectedKpiRange();
   return h("section", { class: "analysis-screen" }, [
     kpiRangeControls(),
@@ -1625,9 +1628,230 @@ function analysisScreen() {
         h("span", {}, "KPI Analysis"),
         h("strong", {}, "NABH / stroke pathway KPI presentation"),
         h("small", {}, `${formatReportDate(range.start)} to ${formatReportDate(range.end)}`)
+      ]),
+      h("button", {
+        type: "button",
+        class: "analysis-option-card",
+        onclick: () => {
+          state.analysisMode = "patient";
+          state.analysisPatientQuery = "";
+          state.analysisPatientId = "";
+          render();
+        }
+      }, [
+        h("span", {}, "Patient Analysis"),
+        h("strong", {}, "Single-patient pathway timeline"),
+        h("small", {}, "Search by patient name, UHID, or Case ID")
       ])
     ])
   ]);
+}
+
+function patientAnalysisScreen() {
+  const selected = state.cases.find((item) => item.id === state.analysisPatientId);
+  const results = patientAnalysisResults();
+  return h("section", { class: "analysis-screen patient-analysis-screen" }, [
+    h("div", { class: "analysis-patient-top" }, [
+      h("button", {
+        type: "button",
+        class: "analysis-back-btn",
+        onclick: () => {
+          state.analysisMode = "menu";
+          state.analysisPatientQuery = "";
+          state.analysisPatientId = "";
+          render();
+        }
+      }, "Back"),
+      h("div", {}, [
+        h("span", {}, "Patient Analysis"),
+        h("strong", {}, "Case pathway timeline")
+      ])
+    ]),
+    h("div", { class: "analysis-patient-search" }, [
+      field("Search patient", h("input", {
+        value: state.analysisPatientQuery,
+        placeholder: "Name, UHID, or Case ID",
+        autocomplete: "off",
+        oninput: (event) => {
+          state.analysisPatientQuery = event.target.value;
+          state.analysisPatientId = "";
+        },
+        onkeydown: (event) => {
+          if (event.key === "Enter") {
+            event.preventDefault();
+            render();
+          }
+        }
+      })),
+      h("button", { type: "button", class: "primary-cta", onclick: () => render() }, "SEARCH")
+    ]),
+    !selected ? patientAnalysisResultList(results) : patientAnalysisDetail(selected)
+  ]);
+}
+
+function patientAnalysisResults() {
+  const query = (state.analysisPatientQuery || "").trim().toLowerCase();
+  return [...state.cases]
+    .sort((a, b) => new Date(b.arrivalTime || 0) - new Date(a.arrivalTime || 0))
+    .filter((item) => {
+      if (!query) return true;
+      return [
+        item.patientName,
+        item.uhid,
+        item.id,
+        item.caseComment,
+        item.admittingConsultant
+      ].some((value) => String(value || "").toLowerCase().includes(query));
+    })
+    .slice(0, query ? 20 : 10);
+}
+
+function patientAnalysisResultList(results) {
+  return h("div", { class: "analysis-patient-results" }, [
+    h("div", { class: "section-heading compact-heading" }, [
+      h("h2", {}, state.analysisPatientQuery ? "Matching Patients" : "Recent Patients"),
+      h("span", {}, `${results.length} shown`)
+    ]),
+    results.length
+      ? h("div", { class: "analysis-patient-list" }, results.map((item) =>
+          h("button", {
+            type: "button",
+            class: "analysis-patient-row",
+            onclick: () => {
+              state.analysisPatientId = item.id;
+              render();
+            }
+          }, [
+            h("div", {}, [
+              h("strong", {}, item.patientName || "Unnamed Patient"),
+              h("span", {}, `${formatCaseDateTime(item.arrivalTime)} | ${item.age || "--"}/${shortGender(item.gender)} | ${item.uhid?.trim() || "UHID --"}`)
+            ]),
+            h("em", {}, caseStatus(item).label)
+          ])
+        ))
+      : empty("No matching patient found.")
+  ]);
+}
+
+function patientAnalysisDetail(item) {
+  const rows = patientTimelineRows(item);
+  const audit = patientAnalysisAudit(item, rows);
+  return h("div", { class: "analysis-patient-detail" }, [
+    h("div", { class: "analysis-patient-summary" }, [
+      h("div", {}, [
+        h("span", {}, item.id),
+        h("h2", {}, item.patientName || "Unnamed Patient"),
+        h("p", {}, `${item.age || "--"}/${shortGender(item.gender)} | UHID ${item.uhid?.trim() || "--"} | ${formatCaseDateTime(item.arrivalTime)}`)
+      ]),
+      h("button", {
+        type: "button",
+        class: "secondary-btn",
+        onclick: () => {
+          state.analysisPatientId = "";
+          render();
+        }
+      }, "CHANGE PATIENT")
+    ]),
+    h("div", { class: "analysis-patient-metrics" }, [
+      analysisMetric("LSN", item.lastSeenNormalTime ? formatCaseDateTime(item.lastSeenNormalTime) : "--"),
+      analysisMetric("Duration", elapsedSince(item.arrivalTime, item.caseStoppedAt || item.signedOffAt || new Date().toISOString())),
+      analysisMetric("Manual entries", audit.manualCount),
+      analysisMetric("Notes", audit.notesCount)
+    ]),
+    h("div", { class: "analysis-focus-grid" }, [
+      h("div", { class: "analysis-focus-card quiet" }, [
+        h("span", {}, "Audit highlight"),
+        h("h3", {}, audit.longestDelay ? `${audit.longestDelay.label}: ${audit.longestDelay.minutes} min` : "No completed interval"),
+        h("p", {}, audit.statusText)
+      ]),
+      h("div", { class: "analysis-focus-card quiet" }, [
+        h("span", {}, "Case comments"),
+        h("p", {}, item.caseComment?.trim() || "No overall comments")
+      ])
+    ]),
+    h("div", { class: "analysis-timeline-card" }, [
+      h("div", { class: "section-heading compact-heading" }, [
+        h("h2", {}, "Full Timeline"),
+        h("span", {}, `${rows.length} events`)
+      ]),
+      h("div", { class: "analysis-timeline-list" }, rows.map((row) => h("div", { class: `analysis-timeline-row ${row.time ? "" : "pending"}` }, [
+        h("time", {}, row.time ? formatClock(row.time) : row.notApplicable ? "N/A" : "--"),
+        h("div", {}, [
+          h("strong", {}, row.label),
+          h("span", {}, row.section),
+          row.reason ? h("em", {}, row.reason) : null,
+          row.note ? h("p", {}, row.note) : null
+        ])
+      ])))
+    ])
+  ]);
+}
+
+function patientTimelineRows(item) {
+  const groups = [
+    ["ER Phase", erStages],
+    ["CT Phase", ctStages],
+    ["MRI Phase", mriStages],
+    ["IV Thrombolysis", [["ivtConsent", "IVT Consent Taken"], ["ivtStarted", "IVT Started / Bolus Given"]]],
+    ["Mechanical Thrombectomy", [["evtConsent", "EVT Consent Taken"], ...mtStages]],
+    ["Ward / Discharge", wardStages]
+  ];
+  const rows = [
+    { section: "Case", label: "Last Seen Normal", time: item.lastSeenNormalTime || "", note: "" },
+    { section: "Case", label: "Arrival / Stroke Reference", time: stageTime(item, "arrival") || item.arrivalTime || "", note: item.stageNotes?.arrival || "" }
+  ];
+  groups.forEach(([section, stages]) => {
+    stages.forEach(([id, label]) => {
+      const stage = item.stages?.[id] || {};
+      rows.push({
+        section,
+        label,
+        time: stage.time || "",
+        notApplicable: Boolean(stage.notApplicable),
+        reason: stage.reason || "",
+        note: item.stageNotes?.[id] || ""
+      });
+    });
+  });
+  if (item.caseStopped) rows.push({
+    section: "Case",
+    label: `Stopped: ${item.caseStoppedReason || "Reason pending"}`,
+    time: item.caseStoppedAt || "",
+    note: item.caseStoppedComment || ""
+  });
+  if (item.signedOffAt) rows.push({
+    section: "Case",
+    label: "Signed off",
+    time: item.signedOffAt,
+    note: `Data entered by: ${item.observerName || "--"} | Admitted under: ${consultantCode(item.admittingConsultant)}`
+  });
+  return rows.sort((a, b) => {
+    if (!a.time && !b.time) return 0;
+    if (!a.time) return 1;
+    if (!b.time) return -1;
+    return new Date(a.time) - new Date(b.time);
+  });
+}
+
+function patientAnalysisAudit(item, rows) {
+  const completedMetrics = metricDefs
+    .map((def) => ({ label: def[1], minutes: metricMinutes(item, def) }))
+    .filter((entry) => entry.minutes != null)
+    .sort((a, b) => b.minutes - a.minutes);
+  const manualCount = Object.values(item.stages || {}).filter((stage) => stage?.mode === "manual").length;
+  const notesCount = Object.values(item.stageNotes || {}).filter(Boolean).length + (item.caseComment?.trim() ? 1 : 0) + (item.caseStoppedComment?.trim() ? 1 : 0);
+  const missingCount = rows.filter((row) => !row.time && !row.notApplicable).length;
+  const statusText = item.caseStopped
+    ? `Case stopped: ${item.caseStoppedReason || "reason pending"}`
+    : item.signedOffAt
+      ? `Signed off. ${missingCount} timeline item${missingCount === 1 ? "" : "s"} pending or not recorded.`
+      : `Live case. ${missingCount} timeline item${missingCount === 1 ? "" : "s"} pending.`;
+  return {
+    longestDelay: completedMetrics[0] || null,
+    manualCount,
+    notesCount,
+    statusText
+  };
 }
 
 function kpiAnalysisDeck() {
