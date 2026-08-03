@@ -2333,7 +2333,7 @@ th {
 .analysis-patient-summary,
 .analysis-patient-results,
 .analysis-timeline-card {
-  padding: 16px;
+  padding: 14px 16px;
   border: 1px solid var(--line);
   border-radius: 8px;
   background: #fff;
@@ -2343,18 +2343,45 @@ th {
 .analysis-patient-metrics {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 12px;
+  gap: 10px;
+}
+
+.patient-analysis-screen .analysis-metric {
+  min-height: 82px;
+  height: 82px;
+  padding: 10px 12px;
+}
+
+.patient-analysis-screen .analysis-metric strong {
+  font-size: clamp(1.1rem, 1.8vw, 1.75rem);
+}
+
+.patient-analysis-screen .analysis-focus-grid {
+  gap: 10px;
+}
+
+.patient-analysis-screen .analysis-focus-card {
+  gap: 5px;
+  padding: 12px;
+}
+
+.patient-analysis-screen .analysis-focus-card h3 {
+  font-size: clamp(1rem, 1.65vw, 1.45rem);
 }
 
 .analysis-timeline-row {
   display: grid;
-  grid-template-columns: 92px minmax(0, 1fr);
-  gap: 14px;
-  padding: 12px 14px;
+  grid-template-columns: 72px minmax(0, 1fr);
+  gap: 10px;
+  padding: 9px 12px;
   border: 1px solid var(--line);
-  border-left: 5px solid var(--green);
+  border-left: 4px solid var(--green);
   border-radius: 8px;
   background: #fff;
+}
+
+.compact-timeline {
+  gap: 7px;
 }
 
 .analysis-timeline-row.pending {
@@ -2362,35 +2389,44 @@ th {
   background: #f8f9fc;
 }
 
+.analysis-timeline-row.na {
+  border-left-color: var(--muted);
+  background: #f8f9fc;
+}
+
 .analysis-timeline-row time {
   color: var(--ink);
+  font-size: 0.94rem;
   font-weight: 950;
 }
 
 .analysis-timeline-row > div {
   display: grid;
-  gap: 3px;
+  gap: 1px;
 }
 
 .analysis-timeline-row strong {
   color: var(--ink);
+  font-size: 0.94rem;
   font-weight: 950;
 }
 
 .analysis-timeline-row span,
 .analysis-timeline-row em {
   color: var(--muted);
+  font-size: 0.82rem;
   font-style: normal;
   font-weight: 850;
 }
 
 .analysis-timeline-row p {
-  margin-top: 4px;
-  padding: 9px 10px;
+  margin-top: 3px;
+  padding: 6px 8px;
   border-left: 3px solid var(--orange);
   border-radius: 6px;
   background: #fff8ed;
   color: var(--ink);
+  font-size: 0.86rem;
   font-weight: 750;
 }
 

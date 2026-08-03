@@ -1667,7 +1667,7 @@ function patientAnalysisScreen() {
         h("strong", {}, "Case pathway timeline")
       ])
     ]),
-    h("div", { class: "analysis-patient-search" }, [
+    !selected ? h("div", { class: "analysis-patient-search" }, [
       field("Search patient", h("input", {
         value: state.analysisPatientQuery,
         placeholder: "Name, UHID, or Case ID",
@@ -1684,7 +1684,7 @@ function patientAnalysisScreen() {
         }
       })),
       h("button", { type: "button", class: "primary-cta", onclick: () => render() }, "SEARCH")
-    ]),
+    ]) : null,
     !selected ? patientAnalysisResultList(results) : patientAnalysisDetail(selected)
   ]);
 }
@@ -1735,6 +1735,7 @@ function patientAnalysisResultList(results) {
 
 function patientAnalysisDetail(item) {
   const rows = patientTimelineRows(item);
+  const displayRows = patientAnalysisDisplayRows(rows);
   const audit = patientAnalysisAudit(item, rows);
   return h("div", { class: "analysis-patient-detail" }, [
     h("div", { class: "analysis-patient-summary" }, [
@@ -1771,10 +1772,10 @@ function patientAnalysisDetail(item) {
     ]),
     h("div", { class: "analysis-timeline-card" }, [
       h("div", { class: "section-heading compact-heading" }, [
-        h("h2", {}, "Full Timeline"),
-        h("span", {}, `${rows.length} events`)
+        h("h2", {}, "Case Timeline"),
+        h("span", {}, `${displayRows.length} key events`)
       ]),
-      h("div", { class: "analysis-timeline-list" }, rows.map((row) => h("div", { class: `analysis-timeline-row ${row.time ? "" : "pending"}` }, [
+      h("div", { class: "analysis-timeline-list compact-timeline" }, displayRows.map((row) => h("div", { class: `analysis-timeline-row ${row.time ? "" : "pending"} ${row.notApplicable ? "na" : ""}` }, [
         h("time", {}, row.time ? formatClock(row.time) : row.notApplicable ? "N/A" : "--"),
         h("div", {}, [
           h("strong", {}, row.label),
@@ -1785,6 +1786,10 @@ function patientAnalysisDetail(item) {
       ])))
     ])
   ]);
+}
+
+function patientAnalysisDisplayRows(rows) {
+  return rows.filter((row) => row.time || row.note || row.label === "Stopped" || row.label === "Signed off");
 }
 
 function patientAnalysisDuration(item) {
