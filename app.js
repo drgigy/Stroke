@@ -5,6 +5,7 @@ const DEVICE_COOKIE_ID = "rsc_device_id";
 const DEVICE_COOKIE_CODE = "rsc_device_code";
 const ACCESS_SETTINGS_KEY = "rajagiri-strokecode-access-v1";
 const KPI_ADMIN_KEY = "rajagiri-strokecode-kpi-admin-v1";
+const PENDING_CASE_SYNC_KEY = "rajagiri-strokecode-pending-case-sync-v1";
 const FIRESTORE_COLLECTION = "strokeCases";
 const DEVICE_COLLECTION = "deviceApprovals";
 const DASHBOARD_PRINT_PAGE_SIZE = 15;
@@ -292,6 +293,7 @@ let cloudSync = {
   enabled: false,
   db: null,
   applyingRemote: false,
+  pendingCaseHashes: loadPendingCaseHashes(),
   casesListening: false,
   devicesListening: false,
   status: "Local only",
@@ -371,6 +373,20 @@ function saveKpiAdminData() {
   localStorage.setItem(KPI_ADMIN_KEY, JSON.stringify(state.kpiAdminData));
 }
 
+function loadPendingCaseHashes() {
+  try {
+    return new Map(Object.entries(JSON.parse(localStorage.getItem(PENDING_CASE_SYNC_KEY)) || {}));
+  } catch {
+    return new Map();
+  }
+}
+
+function savePendingCaseHashes() {
+  try {
+    localStorage.setItem(PENDING_CASE_SYNC_KEY, JSON.stringify(Object.fromEntries(cloudSync.pendingCaseHashes)));
+  } catch {}
+}
+
 function loadDeviceIdentity() {
   let id = safeStorageGet(DEVICE_ID_KEY) || readCookie(DEVICE_COOKIE_ID);
   let code = safeStorageGet(DEVICE_CODE_KEY) || readCookie(DEVICE_COOKIE_CODE);
@@ -423,11 +439,83 @@ function saveAccessSettings() {
   localStorage.setItem(ACCESS_SETTINGS_KEY, JSON.stringify(accessSettings));
 }
 
-function saveCases() {
+function saveCases(changedCaseId = state.activeCaseId) {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(state.cases));
   if (cloudSync.enabled && !cloudSync.applyingRemote) {
-    syncCasesToCloud();
+    markCasesPendingForSync(changedCaseId);
+    syncCasesToCloud(changedCaseId);
   }
+}
+
+function caseSyncFingerprint(item) {
+  try {
+    return JSON.stringify(item || {});
+  } catch {
+    return `${item?.id || "case"}-${Date.now()}`;
+  }
+}
+
+function markCasesPendingForSync(changedCaseId) {
+  let changed = false;
+  caseIdsForSync(changedCaseId).forEach((id) => {
+    const item = state.cases.find((entry) => entry.id === id);
+    if (item?.id) {
+      cloudSync.pendingCaseHashes.set(item.id, caseSyncFingerprint(item));
+      changed = true;
+    }
+  });
+  if (changed) savePendingCaseHashes();
+}
+
+function caseIdsForSync(changedCaseId) {
+  if (!changedCaseId) return [];
+  return Array.isArray(changedCaseId) ? changedCaseId.filter(Boolean) : [changedCaseId];
+}
+
+function sortCasesNewestFirst(cases) {
+  return [...cases].sort((a, b) => {
+    const aTime = new Date(a?.createdAt || a?.arrivalTime || 0).getTime();
+    const bTime = new Date(b?.createdAt || b?.arrivalTime || 0).getTime();
+    return bTime - aTime;
+  });
+}
+
+function mergeRemoteCases(remoteCases) {
+  const localById = new Map(state.cases.filter((item) => item?.id).map((item) => [item.id, item]));
+  const remoteIds = new Set();
+  const merged = [];
+  let pendingChanged = false;
+
+  remoteCases.forEach((remote) => {
+    if (!remote?.id) return;
+    remoteIds.add(remote.id);
+    const local = localById.get(remote.id);
+    const pendingHash = cloudSync.pendingCaseHashes.get(remote.id);
+
+    if (pendingHash && local) {
+      if (caseSyncFingerprint(remote) === pendingHash) {
+        cloudSync.pendingCaseHashes.delete(remote.id);
+        pendingChanged = true;
+        merged.push(remote);
+      } else {
+        merged.push(local);
+      }
+      return;
+    }
+
+    merged.push(remote);
+  });
+
+  cloudSync.pendingCaseHashes.forEach((_, id) => {
+    if (!remoteIds.has(id) && localById.has(id)) merged.push(localById.get(id));
+  });
+
+  if (state.activeCaseId && !merged.some((item) => item.id === state.activeCaseId) && localById.has(state.activeCaseId)) {
+    merged.push(localById.get(state.activeCaseId));
+  }
+
+  if (pendingChanged) savePendingCaseHashes();
+  return sortCasesNewestFirst(merged);
 }
 
 function initCloudSync() {
@@ -501,7 +589,10 @@ function initDeviceApproval() {
       persistDeviceIdentity(state.device.id, state.device.code);
     }
     state.deviceStatus = state.deviceRecord.status || "pending";
-    if (state.deviceStatus === "approved") startCaseSync();
+    if (state.deviceStatus === "approved") {
+      startCaseSync();
+      syncPendingCasesToCloud();
+    }
     render();
   }, (error) => {
     state.deviceStatus = "error";
@@ -513,17 +604,18 @@ function initDeviceApproval() {
 function startCaseSync() {
   if (cloudSync.casesListening) return;
   cloudSync.casesListening = true;
+  syncPendingCasesToCloud();
   cloudSync.db.collection(FIRESTORE_COLLECTION).orderBy("createdAt", "desc").onSnapshot((snapshot) => {
       const remoteCases = snapshot.docs.map((doc) => doc.data());
       cloudSync.applyingRemote = true;
-      state.cases = remoteCases;
+      state.cases = mergeRemoteCases(remoteCases);
       localStorage.setItem(STORAGE_KEY, JSON.stringify(state.cases));
       cloudSync.applyingRemote = false;
       cloudSync.status = "Cloud sync on";
       cloudSync.error = "";
       cloudSync.lastSyncAt = new Date().toISOString();
       if (state.activeCaseId && !state.cases.some((item) => item.id === state.activeCaseId)) {
-        state.activeCaseId = state.cases[0]?.id || null;
+        state.activeCaseId = null;
       }
       render();
     }, (error) => {
@@ -533,17 +625,24 @@ function startCaseSync() {
     });
 }
 
-function syncCasesToCloud() {
-  state.cases.forEach((item) => {
-    cloudSync.db.collection(FIRESTORE_COLLECTION).doc(item.id).set(item, { merge: true }).catch(() => {
-      cloudSync.status = "Cloud sync error";
-      cloudSync.error = "Write failed. Check Firestore rules.";
-    }).then(() => {
+function syncPendingCasesToCloud() {
+  if (!cloudSync.enabled || !cloudSync.db || !cloudSync.pendingCaseHashes.size) return;
+  syncCasesToCloud([...cloudSync.pendingCaseHashes.keys()]);
+}
+
+function syncCasesToCloud(changedCaseId) {
+  caseIdsForSync(changedCaseId).forEach((id) => {
+    const item = state.cases.find((entry) => entry.id === id);
+    if (!item?.id) return;
+    cloudSync.db.collection(FIRESTORE_COLLECTION).doc(item.id).set(item, { merge: true }).then(() => {
       if (cloudSync.status !== "Cloud sync error") {
         cloudSync.status = "Cloud sync on";
         cloudSync.error = "";
         cloudSync.lastSyncAt = new Date().toISOString();
       }
+    }).catch(() => {
+      cloudSync.status = "Cloud sync error";
+      cloudSync.error = "Write failed. Check Firestore rules.";
     });
   });
 }
@@ -736,7 +835,8 @@ function go(view, caseId) {
 }
 
 function currentCase() {
-  return state.cases.find((item) => item.id === state.activeCaseId) || state.cases[0];
+  if (state.activeCaseId) return state.cases.find((item) => item.id === state.activeCaseId) || null;
+  return state.cases[0] || null;
 }
 
 function homeScreen() {
@@ -805,7 +905,7 @@ function createScreen() {
         };
         state.cases.unshift(newCase);
         state.activeCaseId = newCase.id;
-        saveCases();
+        saveCases(newCase.id);
         go("timeline", newCase.id);
       }
     }, [
@@ -1100,7 +1200,7 @@ function editCaseScreen() {
         item.nihss = form.get("nihss") || "";
         item.side = form.get("side") || "Unknown";
         item.territory = form.get("territory") || "Unknown";
-        saveCases();
+        saveCases(item.id);
         go("timeline", item.id);
       }
     }, [
@@ -1361,7 +1461,7 @@ function summaryScreen() {
     ]),
     field("Primary Delay Reason", select("delayReason", ["", ...delayReasons], item.delayReason, (value) => {
       item.delayReason = value;
-      saveCases();
+      saveCases(item.id);
       render();
     })),
     h("div", { class: "metrics-list" }, metricDefs.map((def) => metricLine(item, def))),
@@ -1392,7 +1492,7 @@ function signoffPanel(item, missing) {
         if (item.signedOffAt) item.signedOffUpdatedAt = now;
         else item.signedOffAt = now;
       }
-      saveCases();
+      saveCases(item.id);
       render();
     }
   }, [
@@ -1410,7 +1510,7 @@ function signoffPanel(item, missing) {
       item.caseComment = form?.querySelector("[name='caseComment']")?.value.trim() || item.caseComment || "";
       item.admittingConsultant = form?.querySelector("[name='admittingConsultant']")?.value || item.admittingConsultant || "";
       item.includeInCodeStrokeKpi = value;
-      saveCases();
+      saveCases(item.id);
       render();
     }),
     missing.length
@@ -3656,7 +3756,7 @@ function recordStage(caseId, stageId, mode, manualTime, reason = "") {
   const time = manualTime || new Date().toISOString();
   item.stages[stageId] = { time, mode, reason, notApplicable: false, previous: null };
   syncStageToKpi(item, stageId, time);
-  saveCases();
+  saveCases(item.id);
   render();
 }
 
@@ -3678,7 +3778,7 @@ function toggleStageNotApplicable(caseId, stageId) {
     };
   }
   if (["reachedCt", "reachedMri", "ncctStarted", "mriStarted"].includes(stageId)) syncImagingKpiFields(item);
-  saveCases();
+  saveCases(item.id);
   render();
 }
 
@@ -3768,7 +3868,7 @@ function noteModal() {
           item.stageNotes = item.stageNotes || {};
           if (note) item.stageNotes[target.stageId] = note;
           else delete item.stageNotes[target.stageId];
-          saveCases();
+          saveCases(item.id);
         }
         state.noteTarget = null;
         render();
@@ -3803,7 +3903,7 @@ function stopModal() {
           item.caseStoppedAt = item.caseStoppedAt || new Date().toISOString();
           item.caseStoppedReason = form.get("caseStoppedReason");
           item.caseStoppedComment = form.get("caseStoppedComment").trim();
-          saveCases();
+          saveCases(item.id);
         }
         state.stopTarget = null;
         render();
@@ -3925,7 +4025,7 @@ function kpiModal() {
         captureKpiDraftFromDom();
         applyKpiDraftToCase(item, state.kpiDraft);
         item.kpiUpdatedAt = new Date().toISOString();
-        saveCases();
+        saveCases(item.id);
         state.kpiTarget = null;
         state.kpiDraft = null;
         render();
@@ -4399,7 +4499,7 @@ function toggleImagingModality(caseId, modality) {
   }
   item.imagingModalities = imagingModalityOptions.filter((option) => selected.has(option));
   applyImagingPathway(item);
-  saveCases();
+  saveCases(item.id);
   render();
 }
 
@@ -4451,7 +4551,7 @@ function updateNested(caseId, group, key, value) {
   if (group === "ivt" && key === "eligible" && value === "No" && !stageTime(item, "ivtStarted")) {
     item.kpi = { ...defaultKpiData(), ...(item.kpi || {}), ivtGiven: "No" };
   }
-  saveCases();
+  saveCases(item.id);
   render();
 }
 
@@ -4460,7 +4560,7 @@ function updateKpiField(caseId, key, value) {
   if (!item) return;
   item.kpi = { ...defaultKpiData(), ...(item.kpi || {}), [key]: value };
   item.kpiUpdatedAt = new Date().toISOString();
-  saveCases();
+  saveCases(item.id);
   render();
 }
 
@@ -4485,7 +4585,7 @@ function updateEvtDecision(caseId, key, value) {
     item.mt.notPerformedReason = "";
   }
   item.kpiUpdatedAt = new Date().toISOString();
-  saveCases();
+  saveCases(item.id);
   render();
 }
 
