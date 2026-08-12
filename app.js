@@ -4380,8 +4380,8 @@ function dashboardImagingTime(item, modality) {
   const profile = imagingProfile(item);
   const applicable = modality === "ct" ? profile.ct : profile.mri;
   if (!applicable) return "N/A";
-  const reachedTime = stageTime(item, modality === "ct" ? "reachedCt" : "reachedMri");
-  const minutes = minutesBetween(stageTime(item, "arrival"), reachedTime);
+  const imagingStartTime = stageTime(item, modality === "ct" ? "ncctStarted" : "mriStarted");
+  const minutes = minutesBetween(stageTime(item, "arrival"), imagingStartTime);
   return minutes == null ? "--" : `${minutes} min`;
 }
 
