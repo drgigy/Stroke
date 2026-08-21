@@ -476,6 +476,17 @@ function caseIdsForSync(changedCaseId) {
   return Array.isArray(changedCaseId) ? changedCaseId.filter(Boolean) : [changedCaseId];
 }
 
+function caseWithFirestoreDocId(data, docId) {
+  const item = { ...(data || {}) };
+  if (!item.id) item.id = docId;
+  Object.defineProperty(item, "_firestoreDocId", {
+    value: docId,
+    enumerable: false,
+    configurable: true
+  });
+  return item;
+}
+
 function sortCasesNewestFirst(cases) {
   return [...cases].sort((a, b) => {
     const aTime = new Date(a?.createdAt || a?.arrivalTime || 0).getTime();
@@ -513,10 +524,6 @@ function mergeRemoteCases(remoteCases) {
   cloudSync.pendingCaseHashes.forEach((_, id) => {
     if (!remoteIds.has(id) && localById.has(id)) merged.push(localById.get(id));
   });
-
-  if (state.activeCaseId && !merged.some((item) => item.id === state.activeCaseId) && localById.has(state.activeCaseId)) {
-    merged.push(localById.get(state.activeCaseId));
-  }
 
   if (pendingChanged) savePendingCaseHashes();
   return sortCasesNewestFirst(merged);
@@ -619,7 +626,7 @@ function startCaseSync() {
   cloudSync.casesListening = true;
   syncPendingCasesToCloud();
   cloudSync.db.collection(FIRESTORE_COLLECTION).orderBy("createdAt", "desc").onSnapshot((snapshot) => {
-      const remoteCases = snapshot.docs.map((doc) => doc.data());
+      const remoteCases = snapshot.docs.map((doc) => caseWithFirestoreDocId(doc.data(), doc.id));
       cloudSync.applyingRemote = true;
       state.cases = mergeRemoteCases(remoteCases);
       localStorage.setItem(STORAGE_KEY, JSON.stringify(state.cases));
@@ -3710,17 +3717,20 @@ function pasteAdminDeleteCaseId() {
 }
 
 function adminDeleteCaseResult(item) {
+  const canDelete = Boolean(cloudSync.enabled && cloudSync.db && item._firestoreDocId);
   return h("div", { class: "delete-case-confirm" }, [
     h("div", { class: "delete-case-details" }, [
       metricCard("Case ID", item.id || "--"),
+      item._firestoreDocId && item._firestoreDocId !== item.id ? metricCard("Firestore Doc", item._firestoreDocId) : null,
       metricCard("Patient", item.patientName || "Unnamed Patient"),
       metricCard("Age", item.age || "--"),
       metricCard("UHID", item.uhid || "--")
     ]),
+    canDelete ? null : h("p", { class: "settings-help" }, "A matching Firestore document must be found before this case can be deleted."),
     h("button", {
       class: "danger-btn",
       type: "button",
-      disabled: state.deleteCaseBusy,
+      disabled: state.deleteCaseBusy || !canDelete,
       onclick: () => confirmAdminDeleteCase(item.id)
     }, state.deleteCaseBusy ? "DELETING..." : "DELETE THIS CASE")
   ]);
@@ -3737,29 +3747,29 @@ function searchAdminDeleteCase(rawCaseId) {
     return;
   }
   const localCase = state.cases.find((item) => item.id === caseId);
-  if (localCase) {
-    state.deleteCaseResult = localCase;
-    state.deleteCaseMessage = "Case found locally. Confirm details before deleting.";
-    render();
-    return;
-  }
   if (!cloudSync.enabled || !cloudSync.db) {
-    state.deleteCaseMessage = "Case not found locally, and Firestore is not connected.";
+    if (localCase) {
+      state.deleteCaseResult = localCase;
+      state.deleteCaseMessage = "Case found locally, but Firestore is not connected.";
+    } else {
+      state.deleteCaseMessage = "Case not found locally, and Firestore is not connected.";
+    }
     render();
     return;
   }
   state.deleteCaseBusy = true;
   state.deleteCaseMessage = "Searching Firestore...";
   render();
-  cloudSync.db.collection(FIRESTORE_COLLECTION).doc(caseId).get()
-    .then((doc) => {
-      if (!doc.exists) {
-        state.deleteCaseResult = null;
-        state.deleteCaseMessage = "No case found for this ID.";
+  findCaseDocumentForDelete(caseId)
+    .then((result) => {
+      if (!result) {
+        state.deleteCaseResult = localCase || null;
+        state.deleteCaseMessage = localCase
+          ? "Case found locally, but no matching Firestore document was found."
+          : "No case found for this ID.";
         return;
       }
-      const data = { ...doc.data(), id: doc.id };
-      state.deleteCaseResult = data;
+      state.deleteCaseResult = result;
       state.deleteCaseMessage = "Case found in Firestore. Confirm details before deleting.";
     })
     .catch((error) => {
@@ -3771,9 +3781,23 @@ function searchAdminDeleteCase(rawCaseId) {
     });
 }
 
+function findCaseDocumentForDelete(caseId) {
+  return cloudSync.db.collection(FIRESTORE_COLLECTION).doc(caseId).get()
+    .then((doc) => {
+      if (doc.exists) return caseWithFirestoreDocId(doc.data(), doc.id);
+      return cloudSync.db.collection(FIRESTORE_COLLECTION).where("id", "==", caseId).limit(1).get()
+        .then((snapshot) => snapshot.empty ? null : caseWithFirestoreDocId(snapshot.docs[0].data(), snapshot.docs[0].id));
+    });
+}
+
 function confirmAdminDeleteCase(caseId) {
   const item = state.deleteCaseResult || state.cases.find((entry) => entry.id === caseId);
   if (!item?.id || state.deleteCaseBusy) return;
+  if (!item._firestoreDocId) {
+    state.deleteCaseMessage = "Search found no matching Firestore document to delete.";
+    render();
+    return;
+  }
   if (state.deleteCaseQuery.trim() !== item.id) {
     state.deleteCaseResult = null;
     state.deleteCaseMessage = "Search again before deleting this case.";
@@ -3795,7 +3819,8 @@ function deleteAdminCase(caseId) {
   state.deleteCaseBusy = true;
   state.deleteCaseMessage = "Deleting case from Firestore...";
   render();
-  cloudSync.db.collection(FIRESTORE_COLLECTION).doc(caseId).delete()
+  const docId = state.deleteCaseResult?._firestoreDocId || caseId;
+  cloudSync.db.collection(FIRESTORE_COLLECTION).doc(docId).delete()
     .then(() => {
       removeCaseLocally(caseId);
       state.deleteCaseResult = null;
