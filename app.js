@@ -249,6 +249,10 @@ let state = {
   authError: "",
   settingsMessage: "",
   adminMessage: "",
+  deleteCaseQuery: "",
+  deleteCaseResult: null,
+  deleteCaseMessage: "",
+  deleteCaseBusy: false,
   installMessage: "",
   deferredInstallPrompt: null,
   kpiAdminMonth: monthKey(new Date()),
@@ -516,6 +520,15 @@ function mergeRemoteCases(remoteCases) {
 
   if (pendingChanged) savePendingCaseHashes();
   return sortCasesNewestFirst(merged);
+}
+
+function removeCaseLocally(caseId) {
+  state.cases = state.cases.filter((item) => item.id !== caseId);
+  if (state.activeCaseId === caseId) state.activeCaseId = null;
+  if (state.analysisPatientId === caseId) state.analysisPatientId = "";
+  cloudSync.pendingCaseHashes.delete(caseId);
+  savePendingCaseHashes();
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(state.cases));
 }
 
 function initCloudSync() {
@@ -3583,6 +3596,7 @@ function accessSettingsPanel() {
     h("button", { class: "secondary-btn", type: "button", onclick: () => { state.adminUnlocked = false; state.settingsMessage = ""; render(); } }, "CLOSE ADMIN SETTINGS"),
     h("button", { class: "primary-cta", type: "submit" }, "SAVE ACCESS SETTINGS"),
     adminDiagnosticsPanel(),
+    adminDeleteCasePanel(),
     adminDevicesPanel()
   ]);
 }
@@ -3606,6 +3620,145 @@ function adminDiagnosticsPanel() {
       h("button", { class: "danger-btn", type: "button", style: "background:#fff0f0;color:#e5484d", onclick: clearCases }, "CLEAR LOCAL CASES")
     ])
   ]);
+}
+
+function adminDeleteCasePanel() {
+  return h("div", { class: "admin-devices delete-case-admin" }, [
+    h("div", { class: "section-heading compact-heading" }, [h("h2", {}, "Delete a Case")]),
+    h("p", { class: "settings-help" }, "Paste the exact Firestore case ID. Review the patient details before deleting."),
+    h("div", { class: "delete-case-search" }, [
+      h("input", {
+        value: state.deleteCaseQuery,
+        placeholder: "Example: SCS-123-456-789",
+        autocomplete: "off",
+        oninput: (event) => {
+          const shouldRefresh = Boolean(state.deleteCaseResult || state.deleteCaseMessage);
+          state.deleteCaseQuery = event.target.value;
+          state.deleteCaseMessage = "";
+          state.deleteCaseResult = null;
+          if (shouldRefresh) render();
+        },
+        onkeydown: (event) => {
+          if (event.key !== "Enter") return;
+          event.preventDefault();
+          searchAdminDeleteCase(state.deleteCaseQuery);
+        }
+      }),
+      h("button", {
+        class: "secondary-btn",
+        type: "button",
+        disabled: state.deleteCaseBusy,
+        onclick: () => searchAdminDeleteCase(state.deleteCaseQuery)
+      }, state.deleteCaseBusy ? "SEARCHING..." : "SEARCH")
+    ]),
+    state.deleteCaseMessage ? h("div", { class: `settings-message ${state.deleteCaseMessage.includes("found") || state.deleteCaseMessage.includes("deleted") ? "ok" : ""}` }, state.deleteCaseMessage) : null,
+    state.deleteCaseResult ? adminDeleteCaseResult(state.deleteCaseResult) : null
+  ]);
+}
+
+function adminDeleteCaseResult(item) {
+  return h("div", { class: "delete-case-confirm" }, [
+    h("div", { class: "delete-case-details" }, [
+      metricCard("Case ID", item.id || "--"),
+      metricCard("Patient", item.patientName || "Unnamed Patient"),
+      metricCard("Age", item.age || "--"),
+      metricCard("UHID", item.uhid || "--")
+    ]),
+    h("button", {
+      class: "danger-btn",
+      type: "button",
+      disabled: state.deleteCaseBusy,
+      onclick: () => confirmAdminDeleteCase(item.id)
+    }, state.deleteCaseBusy ? "DELETING..." : "DELETE THIS CASE")
+  ]);
+}
+
+function searchAdminDeleteCase(rawCaseId) {
+  const caseId = String(rawCaseId || "").trim();
+  state.deleteCaseQuery = caseId;
+  state.deleteCaseResult = null;
+  state.deleteCaseMessage = "";
+  if (!caseId) {
+    state.deleteCaseMessage = "Enter a case ID to search.";
+    render();
+    return;
+  }
+  const localCase = state.cases.find((item) => item.id === caseId);
+  if (localCase) {
+    state.deleteCaseResult = localCase;
+    state.deleteCaseMessage = "Case found locally. Confirm details before deleting.";
+    render();
+    return;
+  }
+  if (!cloudSync.enabled || !cloudSync.db) {
+    state.deleteCaseMessage = "Case not found locally, and Firestore is not connected.";
+    render();
+    return;
+  }
+  state.deleteCaseBusy = true;
+  state.deleteCaseMessage = "Searching Firestore...";
+  render();
+  cloudSync.db.collection(FIRESTORE_COLLECTION).doc(caseId).get()
+    .then((doc) => {
+      if (!doc.exists) {
+        state.deleteCaseResult = null;
+        state.deleteCaseMessage = "No case found for this ID.";
+        return;
+      }
+      const data = { ...doc.data(), id: doc.id };
+      state.deleteCaseResult = data;
+      state.deleteCaseMessage = "Case found in Firestore. Confirm details before deleting.";
+    })
+    .catch((error) => {
+      state.deleteCaseMessage = `${error.code || "error"}: Case search failed`;
+    })
+    .finally(() => {
+      state.deleteCaseBusy = false;
+      render();
+    });
+}
+
+function confirmAdminDeleteCase(caseId) {
+  const item = state.deleteCaseResult || state.cases.find((entry) => entry.id === caseId);
+  if (!item?.id || state.deleteCaseBusy) return;
+  if (state.deleteCaseQuery.trim() !== item.id) {
+    state.deleteCaseResult = null;
+    state.deleteCaseMessage = "Search again before deleting this case.";
+    render();
+    return;
+  }
+  const label = `${item.patientName || "Unnamed Patient"} | ${item.age || "--"} | UHID ${item.uhid || "--"}`;
+  if (!window.confirm(`Delete this case permanently?\n\n${item.id}\n${label}`)) return;
+  deleteAdminCase(item.id);
+}
+
+function deleteAdminCase(caseId) {
+  if (!caseId) return;
+  if (!cloudSync.enabled || !cloudSync.db) {
+    state.deleteCaseMessage = "Firestore is not connected. Case was not deleted.";
+    render();
+    return;
+  }
+  state.deleteCaseBusy = true;
+  state.deleteCaseMessage = "Deleting case from Firestore...";
+  render();
+  cloudSync.db.collection(FIRESTORE_COLLECTION).doc(caseId).delete()
+    .then(() => {
+      removeCaseLocally(caseId);
+      state.deleteCaseResult = null;
+      state.deleteCaseQuery = "";
+      state.deleteCaseMessage = "Case deleted from Firestore and local app data.";
+      cloudSync.status = "Cloud sync on";
+      cloudSync.error = "";
+      cloudSync.lastSyncAt = new Date().toISOString();
+    })
+    .catch((error) => {
+      state.deleteCaseMessage = `${error.code || "error"}: Case delete failed`;
+    })
+    .finally(() => {
+      state.deleteCaseBusy = false;
+      render();
+    });
 }
 
 function installButton() {
