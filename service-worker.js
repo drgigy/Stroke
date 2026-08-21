@@ -1,4 +1,4 @@
-const CACHE_NAME = "rajagiri-strokecode-v114";
+const CACHE_NAME = "rajagiri-strokecode-v115";
 const ASSETS = [
   "./",
   "./index.html",

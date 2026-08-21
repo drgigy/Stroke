@@ -3628,15 +3628,21 @@ function adminDeleteCasePanel() {
     h("p", { class: "settings-help" }, "Paste the exact Firestore case ID. Review the patient details before deleting."),
     h("div", { class: "delete-case-search" }, [
       h("input", {
+        type: "text",
         value: state.deleteCaseQuery,
-        placeholder: "Example: SCS-123-456-789",
+        placeholder: "Example: SC-260818-175030-MYY",
         autocomplete: "off",
+        autocapitalize: "characters",
+        autocorrect: "off",
+        spellcheck: "false",
+        inputmode: "text",
+        enterkeyhint: "search",
+        "aria-label": "Case ID",
         oninput: (event) => {
-          const shouldRefresh = Boolean(state.deleteCaseResult || state.deleteCaseMessage);
-          state.deleteCaseQuery = event.target.value;
-          state.deleteCaseMessage = "";
-          state.deleteCaseResult = null;
-          if (shouldRefresh) render();
+          setAdminDeleteCaseQuery(event.target.value);
+        },
+        onpaste: (event) => {
+          setTimeout(() => setAdminDeleteCaseQuery(event.currentTarget.value), 0);
         },
         onkeydown: (event) => {
           if (event.key !== "Enter") return;
@@ -3648,12 +3654,59 @@ function adminDeleteCasePanel() {
         class: "secondary-btn",
         type: "button",
         disabled: state.deleteCaseBusy,
+        onclick: pasteAdminDeleteCaseId
+      }, "PASTE ID"),
+      h("button", {
+        class: "secondary-btn",
+        type: "button",
+        disabled: state.deleteCaseBusy,
         onclick: () => searchAdminDeleteCase(state.deleteCaseQuery)
       }, state.deleteCaseBusy ? "SEARCHING..." : "SEARCH")
     ]),
     state.deleteCaseMessage ? h("div", { class: `settings-message ${state.deleteCaseMessage.includes("found") || state.deleteCaseMessage.includes("deleted") ? "ok" : ""}` }, state.deleteCaseMessage) : null,
     state.deleteCaseResult ? adminDeleteCaseResult(state.deleteCaseResult) : null
   ]);
+}
+
+function setAdminDeleteCaseQuery(value) {
+  const shouldRefresh = Boolean(state.deleteCaseResult || state.deleteCaseMessage);
+  state.deleteCaseQuery = normalizeCaseId(value);
+  state.deleteCaseMessage = "";
+  state.deleteCaseResult = null;
+  if (shouldRefresh) render();
+}
+
+function normalizeCaseId(value) {
+  return String(value || "").trim().replace(/[‐‑‒–—−]/g, "-").replace(/\s+/g, "");
+}
+
+function pasteAdminDeleteCaseId() {
+  if (!navigator.clipboard?.readText) {
+    state.deleteCaseMessage = "Tap inside the case ID box and use Paste.";
+    render();
+    return;
+  }
+  state.deleteCaseBusy = true;
+  state.deleteCaseMessage = "Reading clipboard...";
+  render();
+  navigator.clipboard.readText()
+    .then((text) => {
+      const caseId = normalizeCaseId(text);
+      if (!caseId) {
+        state.deleteCaseMessage = "Clipboard does not contain a case ID.";
+        return;
+      }
+      state.deleteCaseQuery = caseId;
+      state.deleteCaseResult = null;
+      state.deleteCaseMessage = "Case ID pasted. Press Search to confirm.";
+    })
+    .catch(() => {
+      state.deleteCaseMessage = "Clipboard access was blocked. Tap inside the case ID box and use Paste.";
+    })
+    .finally(() => {
+      state.deleteCaseBusy = false;
+      render();
+    });
 }
 
 function adminDeleteCaseResult(item) {
@@ -3674,7 +3727,7 @@ function adminDeleteCaseResult(item) {
 }
 
 function searchAdminDeleteCase(rawCaseId) {
-  const caseId = String(rawCaseId || "").trim();
+  const caseId = normalizeCaseId(rawCaseId);
   state.deleteCaseQuery = caseId;
   state.deleteCaseResult = null;
   state.deleteCaseMessage = "";
