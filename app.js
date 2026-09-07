@@ -444,11 +444,21 @@ function saveAccessSettings() {
 }
 
 function saveCases(changedCaseId = state.activeCaseId) {
+  touchCasesForSync(changedCaseId);
   localStorage.setItem(STORAGE_KEY, JSON.stringify(state.cases));
   if (cloudSync.enabled && !cloudSync.applyingRemote) {
     markCasesPendingForSync(changedCaseId);
     syncCasesToCloud(changedCaseId);
   }
+}
+
+function touchCasesForSync(changedCaseId) {
+  if (!changedCaseId || cloudSync.applyingRemote) return;
+  const now = new Date().toISOString();
+  caseIdsForSync(changedCaseId).forEach((id) => {
+    const item = state.cases.find((entry) => entry.id === id);
+    if (item?.id) item.updatedAt = now;
+  });
 }
 
 function caseSyncFingerprint(item) {
@@ -476,6 +486,10 @@ function caseIdsForSync(changedCaseId) {
   return Array.isArray(changedCaseId) ? changedCaseId.filter(Boolean) : [changedCaseId];
 }
 
+function caseFirestoreDocId(item) {
+  return item?._firestoreDocId || item?.id || "";
+}
+
 function caseWithFirestoreDocId(data, docId) {
   const item = { ...(data || {}) };
   if (!item.id) item.id = docId;
@@ -484,6 +498,69 @@ function caseWithFirestoreDocId(data, docId) {
     enumerable: false,
     configurable: true
   });
+  Object.defineProperty(item, "_firestoreDocIds", {
+    value: [docId],
+    enumerable: false,
+    configurable: true
+  });
+  return item;
+}
+
+function caseRevisionTime(item) {
+  return [
+    item?.updatedAt,
+    item?.signedOffUpdatedAt,
+    item?.signedOffAt,
+    item?.caseStoppedAt,
+    item?.kpiUpdatedAt,
+    item?.createdAt,
+    item?.arrivalTime
+  ].reduce((latest, value) => {
+    const time = value ? new Date(value).getTime() : 0;
+    return Number.isFinite(time) && time > latest ? time : latest;
+  }, 0);
+}
+
+function caseCompletenessScore(item) {
+  if (!item) return 0;
+  return [
+    item.signedOffAt,
+    item.caseStoppedAt,
+    item.observerName,
+    item.lastSeenNormalTime,
+    item.admittingConsultant,
+    item.includeInCodeStrokeKpi,
+    item.caseComment,
+    item.kpiUpdatedAt
+  ].filter(Boolean).length;
+}
+
+function choosePreferredCase(existing, candidate) {
+  if (!existing) return candidate;
+  if (!candidate) return existing;
+  const docIds = [...new Set([...(existing._firestoreDocIds || [existing._firestoreDocId]).filter(Boolean), ...(candidate._firestoreDocIds || [candidate._firestoreDocId]).filter(Boolean)])];
+  const existingTime = caseRevisionTime(existing);
+  const candidateTime = caseRevisionTime(candidate);
+  if (candidateTime !== existingTime) return attachFirestoreDocIds(candidateTime > existingTime ? candidate : existing, docIds);
+  const existingScore = caseCompletenessScore(existing);
+  const candidateScore = caseCompletenessScore(candidate);
+  return attachFirestoreDocIds(candidateScore > existingScore ? candidate : existing, docIds);
+}
+
+function attachFirestoreDocIds(item, docIds) {
+  if (!item || !docIds.length) return item;
+  Object.defineProperty(item, "_firestoreDocIds", {
+    value: docIds,
+    enumerable: false,
+    configurable: true
+  });
+  if (!item._firestoreDocId || !docIds.includes(item._firestoreDocId)) {
+    Object.defineProperty(item, "_firestoreDocId", {
+      value: docIds[0],
+      enumerable: false,
+      configurable: true
+    });
+  }
   return item;
 }
 
@@ -497,13 +574,16 @@ function sortCasesNewestFirst(cases) {
 
 function mergeRemoteCases(remoteCases) {
   const localById = new Map(state.cases.filter((item) => item?.id).map((item) => [item.id, item]));
-  const remoteIds = new Set();
+  const remoteById = new Map();
   const merged = [];
   let pendingChanged = false;
 
   remoteCases.forEach((remote) => {
     if (!remote?.id) return;
-    remoteIds.add(remote.id);
+    remoteById.set(remote.id, choosePreferredCase(remoteById.get(remote.id), remote));
+  });
+
+  remoteById.forEach((remote) => {
     const local = localById.get(remote.id);
     const pendingHash = cloudSync.pendingCaseHashes.get(remote.id);
 
@@ -518,11 +598,11 @@ function mergeRemoteCases(remoteCases) {
       return;
     }
 
-    merged.push(remote);
+    merged.push(choosePreferredCase(remote, local));
   });
 
   cloudSync.pendingCaseHashes.forEach((_, id) => {
-    if (!remoteIds.has(id) && localById.has(id)) merged.push(localById.get(id));
+    if (!remoteById.has(id) && localById.has(id)) merged.push(localById.get(id));
   });
 
   if (pendingChanged) savePendingCaseHashes();
@@ -654,7 +734,7 @@ function syncCasesToCloud(changedCaseId) {
   caseIdsForSync(changedCaseId).forEach((id) => {
     const item = state.cases.find((entry) => entry.id === id);
     if (!item?.id) return;
-    cloudSync.db.collection(FIRESTORE_COLLECTION).doc(item.id).set(item, { merge: true }).then(() => {
+    cloudSync.db.collection(FIRESTORE_COLLECTION).doc(caseFirestoreDocId(item)).set(item, { merge: true }).then(() => {
       if (cloudSync.status !== "Cloud sync error") {
         cloudSync.status = "Cloud sync on";
         cloudSync.error = "";
@@ -3722,6 +3802,7 @@ function adminDeleteCaseResult(item) {
     h("div", { class: "delete-case-details" }, [
       metricCard("Case ID", item.id || "--"),
       item._firestoreDocId && item._firestoreDocId !== item.id ? metricCard("Firestore Doc", item._firestoreDocId) : null,
+      item._firestoreDocIds?.length > 1 ? metricCard("Matching Docs", item._firestoreDocIds.length) : null,
       metricCard("Patient", item.patientName || "Unnamed Patient"),
       metricCard("Age", item.age || "--"),
       metricCard("UHID", item.uhid || "--")
@@ -3784,9 +3865,17 @@ function searchAdminDeleteCase(rawCaseId) {
 function findCaseDocumentForDelete(caseId) {
   return cloudSync.db.collection(FIRESTORE_COLLECTION).doc(caseId).get()
     .then((doc) => {
-      if (doc.exists) return caseWithFirestoreDocId(doc.data(), doc.id);
-      return cloudSync.db.collection(FIRESTORE_COLLECTION).where("id", "==", caseId).limit(1).get()
-        .then((snapshot) => snapshot.empty ? null : caseWithFirestoreDocId(snapshot.docs[0].data(), snapshot.docs[0].id));
+      const matches = [];
+      if (doc.exists) matches.push(caseWithFirestoreDocId(doc.data(), doc.id));
+      return cloudSync.db.collection(FIRESTORE_COLLECTION).where("id", "==", caseId).get()
+        .then((snapshot) => {
+          snapshot.docs.forEach((entry) => {
+            if (!matches.some((item) => item._firestoreDocId === entry.id)) {
+              matches.push(caseWithFirestoreDocId(entry.data(), entry.id));
+            }
+          });
+          return matches.reduce((preferred, item) => choosePreferredCase(preferred, item), null);
+        });
     });
 }
 
@@ -3819,8 +3908,8 @@ function deleteAdminCase(caseId) {
   state.deleteCaseBusy = true;
   state.deleteCaseMessage = "Deleting case from Firestore...";
   render();
-  const docId = state.deleteCaseResult?._firestoreDocId || caseId;
-  cloudSync.db.collection(FIRESTORE_COLLECTION).doc(docId).delete()
+  const docIds = state.deleteCaseResult?._firestoreDocIds?.length ? state.deleteCaseResult._firestoreDocIds : [state.deleteCaseResult?._firestoreDocId || caseId];
+  Promise.all([...new Set(docIds)].map((docId) => cloudSync.db.collection(FIRESTORE_COLLECTION).doc(docId).delete()))
     .then(() => {
       removeCaseLocally(caseId);
       state.deleteCaseResult = null;
