@@ -6,6 +6,7 @@ const DEVICE_COOKIE_CODE = "rsc_device_code";
 const ACCESS_SETTINGS_KEY = "rajagiri-strokecode-access-v1";
 const KPI_ADMIN_KEY = "rajagiri-strokecode-kpi-admin-v1";
 const PENDING_CASE_SYNC_KEY = "rajagiri-strokecode-pending-case-sync-v1";
+const DELETED_CASES_KEY = "rajagiri-strokecode-deleted-cases-v1";
 const FIRESTORE_COLLECTION = "strokeCases";
 const DEVICE_COLLECTION = "deviceApprovals";
 const DASHBOARD_PRINT_PAGE_SIZE = 15;
@@ -298,6 +299,7 @@ let cloudSync = {
   db: null,
   applyingRemote: false,
   pendingCaseHashes: loadPendingCaseHashes(),
+  deletedCaseIds: loadDeletedCaseIds(),
   casesListening: false,
   devicesListening: false,
   status: "Local only",
@@ -385,9 +387,23 @@ function loadPendingCaseHashes() {
   }
 }
 
+function loadDeletedCaseIds() {
+  try {
+    return new Map(Object.entries(JSON.parse(localStorage.getItem(DELETED_CASES_KEY)) || {}));
+  } catch {
+    return new Map();
+  }
+}
+
 function savePendingCaseHashes() {
   try {
     localStorage.setItem(PENDING_CASE_SYNC_KEY, JSON.stringify(Object.fromEntries(cloudSync.pendingCaseHashes)));
+  } catch {}
+}
+
+function saveDeletedCaseIds() {
+  try {
+    localStorage.setItem(DELETED_CASES_KEY, JSON.stringify(Object.fromEntries(cloudSync.deletedCaseIds)));
   } catch {}
 }
 
@@ -472,6 +488,7 @@ function caseSyncFingerprint(item) {
 function markCasesPendingForSync(changedCaseId) {
   let changed = false;
   caseIdsForSync(changedCaseId).forEach((id) => {
+    if (isCaseDeleted(id)) return;
     const item = state.cases.find((entry) => entry.id === id);
     if (item?.id) {
       cloudSync.pendingCaseHashes.set(item.id, caseSyncFingerprint(item));
@@ -488,6 +505,29 @@ function caseIdsForSync(changedCaseId) {
 
 function caseFirestoreDocId(item) {
   return item?._firestoreDocId || item?.id || "";
+}
+
+function isCaseDeleted(caseId) {
+  return Boolean(caseId && cloudSync.deletedCaseIds.has(caseId));
+}
+
+function markCaseDeleted(caseId, deletedAt = new Date().toISOString()) {
+  if (!caseId) return;
+  cloudSync.deletedCaseIds.set(caseId, deletedAt);
+  cloudSync.pendingCaseHashes.delete(caseId);
+  saveDeletedCaseIds();
+  savePendingCaseHashes();
+}
+
+function deletionTombstone(caseId, deletedAt = new Date().toISOString()) {
+  return {
+    id: caseId,
+    deleted: true,
+    deletedAt,
+    updatedAt: deletedAt,
+    createdAt: deletedAt,
+    deletedByDeviceId: state.device?.id || ""
+  };
 }
 
 function caseWithFirestoreDocId(data, docId) {
@@ -573,13 +613,13 @@ function sortCasesNewestFirst(cases) {
 }
 
 function mergeRemoteCases(remoteCases) {
-  const localById = new Map(state.cases.filter((item) => item?.id).map((item) => [item.id, item]));
+  const localById = new Map(state.cases.filter((item) => item?.id && !isCaseDeleted(item.id)).map((item) => [item.id, item]));
   const remoteById = new Map();
   const merged = [];
   let pendingChanged = false;
 
   remoteCases.forEach((remote) => {
-    if (!remote?.id) return;
+    if (!remote?.id || isCaseDeleted(remote.id)) return;
     remoteById.set(remote.id, choosePreferredCase(remoteById.get(remote.id), remote));
   });
 
@@ -609,12 +649,11 @@ function mergeRemoteCases(remoteCases) {
   return sortCasesNewestFirst(merged);
 }
 
-function removeCaseLocally(caseId) {
+function removeCaseLocally(caseId, deletedAt) {
+  markCaseDeleted(caseId, deletedAt || cloudSync.deletedCaseIds.get(caseId) || new Date().toISOString());
   state.cases = state.cases.filter((item) => item.id !== caseId);
   if (state.activeCaseId === caseId) state.activeCaseId = null;
   if (state.analysisPatientId === caseId) state.analysisPatientId = "";
-  cloudSync.pendingCaseHashes.delete(caseId);
-  savePendingCaseHashes();
   localStorage.setItem(STORAGE_KEY, JSON.stringify(state.cases));
 }
 
@@ -691,7 +730,6 @@ function initDeviceApproval() {
     state.deviceStatus = state.deviceRecord.status || "pending";
     if (state.deviceStatus === "approved") {
       startCaseSync();
-      syncPendingCasesToCloud();
     }
     render();
   }, (error) => {
@@ -704,9 +742,24 @@ function initDeviceApproval() {
 function startCaseSync() {
   if (cloudSync.casesListening) return;
   cloudSync.casesListening = true;
-  syncPendingCasesToCloud();
   cloudSync.db.collection(FIRESTORE_COLLECTION).orderBy("createdAt", "desc").onSnapshot((snapshot) => {
-      const remoteCases = snapshot.docs.map((doc) => caseWithFirestoreDocId(doc.data(), doc.id));
+      const remoteCases = [];
+      let deletedChanged = false;
+      snapshot.docs.forEach((doc) => {
+        const data = doc.data();
+        const caseId = data?.id || doc.id;
+        if (data?.deleted || data?.deletedAt) {
+          cloudSync.deletedCaseIds.set(caseId, data.deletedAt || data.updatedAt || new Date().toISOString());
+          cloudSync.pendingCaseHashes.delete(caseId);
+          deletedChanged = true;
+          return;
+        }
+        remoteCases.push(caseWithFirestoreDocId(data, doc.id));
+      });
+      if (deletedChanged) {
+        saveDeletedCaseIds();
+        savePendingCaseHashes();
+      }
       cloudSync.applyingRemote = true;
       state.cases = mergeRemoteCases(remoteCases);
       localStorage.setItem(STORAGE_KEY, JSON.stringify(state.cases));
@@ -718,6 +771,7 @@ function startCaseSync() {
         state.activeCaseId = null;
       }
       render();
+      syncPendingCasesToCloud();
     }, (error) => {
       cloudSync.status = "Cloud sync error";
       cloudSync.error = `${error.code || "error"}: ${error.message || "Firestore listener failed"}`;
@@ -732,6 +786,11 @@ function syncPendingCasesToCloud() {
 
 function syncCasesToCloud(changedCaseId) {
   caseIdsForSync(changedCaseId).forEach((id) => {
+    if (isCaseDeleted(id)) {
+      cloudSync.pendingCaseHashes.delete(id);
+      savePendingCaseHashes();
+      return;
+    }
     const item = state.cases.find((entry) => entry.id === id);
     if (!item?.id) return;
     cloudSync.db.collection(FIRESTORE_COLLECTION).doc(caseFirestoreDocId(item)).set(item, { merge: true }).then(() => {
@@ -3866,12 +3925,16 @@ function findCaseDocumentForDelete(caseId) {
   return cloudSync.db.collection(FIRESTORE_COLLECTION).doc(caseId).get()
     .then((doc) => {
       const matches = [];
-      if (doc.exists) matches.push(caseWithFirestoreDocId(doc.data(), doc.id));
+      if (doc.exists) {
+        const data = doc.data();
+        if (!data?.deleted && !data?.deletedAt) matches.push(caseWithFirestoreDocId(data, doc.id));
+      }
       return cloudSync.db.collection(FIRESTORE_COLLECTION).where("id", "==", caseId).get()
         .then((snapshot) => {
           snapshot.docs.forEach((entry) => {
-            if (!matches.some((item) => item._firestoreDocId === entry.id)) {
-              matches.push(caseWithFirestoreDocId(entry.data(), entry.id));
+            const data = entry.data();
+            if (!data?.deleted && !data?.deletedAt && !matches.some((item) => item._firestoreDocId === entry.id)) {
+              matches.push(caseWithFirestoreDocId(data, entry.id));
             }
           });
           return matches.reduce((preferred, item) => choosePreferredCase(preferred, item), null);
@@ -3909,12 +3972,15 @@ function deleteAdminCase(caseId) {
   state.deleteCaseMessage = "Deleting case from Firestore...";
   render();
   const docIds = state.deleteCaseResult?._firestoreDocIds?.length ? state.deleteCaseResult._firestoreDocIds : [state.deleteCaseResult?._firestoreDocId || caseId];
-  Promise.all([...new Set(docIds)].map((docId) => cloudSync.db.collection(FIRESTORE_COLLECTION).doc(docId).delete()))
+  const deletedAt = new Date().toISOString();
+  const uniqueDocIds = [...new Set(docIds)];
+  Promise.all(uniqueDocIds.map((docId) => cloudSync.db.collection(FIRESTORE_COLLECTION).doc(docId).delete()))
+    .then(() => cloudSync.db.collection(FIRESTORE_COLLECTION).doc(caseId).set(deletionTombstone(caseId, deletedAt), { merge: true }))
     .then(() => {
-      removeCaseLocally(caseId);
+      removeCaseLocally(caseId, deletedAt);
       state.deleteCaseResult = null;
       state.deleteCaseQuery = "";
-      state.deleteCaseMessage = "Case deleted from Firestore and local app data.";
+      state.deleteCaseMessage = "Case deleted and protected from stale-device reappearing.";
       cloudSync.status = "Cloud sync on";
       cloudSync.error = "";
       cloudSync.lastSyncAt = new Date().toISOString();
