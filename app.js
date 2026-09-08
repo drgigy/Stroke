@@ -618,15 +618,17 @@ function choosePreferredCase(existing, candidate) {
   return attachFirestoreDocIds(candidateScore > existingScore ? candidate : existing, docIds);
 }
 
-function isBlankValue(value) {
-  return value === "" || value == null;
+function isBlankValue(value, key = "") {
+  if (value === "" || value == null) return true;
+  if (key === "patientName" && value === "Unnamed Patient") return true;
+  return false;
 }
 
 function isPlainObject(value) {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
-function mergeCaseValue(base, overlay) {
+function mergeCaseValue(base, overlay, key = "") {
   if (Array.isArray(base) || Array.isArray(overlay)) {
     const overlayArray = Array.isArray(overlay) ? overlay : [];
     const baseArray = Array.isArray(base) ? base : [];
@@ -636,15 +638,22 @@ function mergeCaseValue(base, overlay) {
     const result = {};
     const keys = new Set([...Object.keys(base || {}), ...Object.keys(overlay || {})]);
     keys.forEach((key) => {
-      result[key] = mergeCaseValue(base?.[key], overlay?.[key]);
+      result[key] = mergeCaseValue(base?.[key], overlay?.[key], key);
     });
     return result;
   }
-  return isBlankValue(overlay) && !isBlankValue(base) ? base : overlay;
+  return isBlankValue(overlay, key) && !isBlankValue(base, key) ? base : overlay;
 }
 
 function mergeCaseRecords(remote, local) {
-  if (!remote) return normalizeCaseLifecycle({ ...(local || {}) });
+  if (!remote) {
+    const docIds = [...(local?._firestoreDocIds || [local?._firestoreDocId]).filter(Boolean)];
+    return attachFirestoreDocIds(normalizeCaseLifecycle({ ...(local || {}) }), docIds);
+  }
+  if (!local) {
+    const docIds = [...(remote?._firestoreDocIds || [remote?._firestoreDocId]).filter(Boolean)];
+    return attachFirestoreDocIds(normalizeCaseLifecycle({ ...(remote || {}) }), docIds);
+  }
   if (remote.deleted || remote.deletedAt) return remote;
   const localIsNewer = caseRevisionTime(local) >= caseRevisionTime(remote);
   const base = localIsNewer ? remote : local;
@@ -687,7 +696,7 @@ function mergeRemoteCases(remoteCases) {
 
   remoteCases.forEach((remote) => {
     if (!remote?.id || isCaseDeleted(remote.id)) return;
-    remoteById.set(remote.id, choosePreferredCase(remoteById.get(remote.id), remote));
+    remoteById.set(remote.id, mergeCaseRecords(remoteById.get(remote.id), remote));
   });
 
   remoteById.forEach((remote) => {
@@ -700,7 +709,7 @@ function mergeRemoteCases(remoteCases) {
         pendingChanged = true;
         merged.push(remote);
       } else {
-        merged.push(local);
+        merged.push(mergeCaseRecords(remote, local));
       }
       return;
     }
@@ -861,7 +870,9 @@ function syncCasesToCloud(changedCaseId) {
     const item = state.cases.find((entry) => entry.id === id);
     if (!item?.id) return;
     const ref = cloudSync.db.collection(FIRESTORE_COLLECTION).doc(caseFirestoreDocId(item));
-    ref.get().then((doc) => {
+    const writeLocalCase = () => ref.set(normalizeCaseLifecycle(item), { merge: true }).then(() => normalizeCaseLifecycle(item));
+    const writeMergedCase = item._firestoreDocId
+      ? ref.get().then((doc) => {
       const remote = doc.exists ? caseWithFirestoreDocId(doc.data(), doc.id) : null;
       if (remote?.deleted || remote?.deletedAt) {
         markCaseDeleted(item.id, remote.deletedAt || remote.updatedAt);
@@ -870,7 +881,9 @@ function syncCasesToCloud(changedCaseId) {
       }
       const merged = mergeCaseRecords(remote, item);
       return ref.set(merged, { merge: true }).then(() => merged);
-    }).then((merged) => {
+    })
+      : writeLocalCase();
+    writeMergedCase.then((merged) => {
       if (!merged) return;
       const index = state.cases.findIndex((entry) => entry.id === merged.id);
       if (index >= 0) {
