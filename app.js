@@ -473,7 +473,10 @@ function touchCasesForSync(changedCaseId) {
   const now = new Date().toISOString();
   caseIdsForSync(changedCaseId).forEach((id) => {
     const item = state.cases.find((entry) => entry.id === id);
-    if (item?.id) item.updatedAt = now;
+    if (item?.id) {
+      item.updatedAt = now;
+      normalizeCaseLifecycle(item);
+    }
   });
 }
 
@@ -530,8 +533,33 @@ function deletionTombstone(caseId, deletedAt = new Date().toISOString()) {
   };
 }
 
+function normalizeCaseLifecycle(item) {
+  if (!item || item.deleted || item.deletedAt) return item;
+  if (item.caseStopped || item.caseStoppedAt || item.caseClosedType === "stopped") {
+    item.caseClosed = true;
+    item.caseClosedType = "stopped";
+    item.caseClosedAt = item.caseStoppedAt || item.caseClosedAt || item.updatedAt || new Date().toISOString();
+    item.caseStopped = true;
+    item.caseStoppedAt = item.caseStoppedAt || item.caseClosedAt;
+    return item;
+  }
+  if (item.signedOffAt || item.caseClosedType === "signed-off" || item.caseClosed) {
+    item.caseClosed = true;
+    item.caseClosedType = "signed-off";
+    item.caseClosedAt = item.signedOffAt || item.caseClosedAt || item.updatedAt || new Date().toISOString();
+    item.signedOffAt = item.signedOffAt || item.caseClosedAt;
+    return item;
+  }
+  if (!item.caseClosed) {
+    item.caseClosed = false;
+    item.caseClosedType = "";
+    item.caseClosedAt = "";
+  }
+  return item;
+}
+
 function caseWithFirestoreDocId(data, docId) {
-  const item = { ...(data || {}) };
+  const item = normalizeCaseLifecycle({ ...(data || {}) });
   if (!item.id) item.id = docId;
   Object.defineProperty(item, "_firestoreDocId", {
     value: docId,
@@ -549,6 +577,7 @@ function caseWithFirestoreDocId(data, docId) {
 function caseRevisionTime(item) {
   return [
     item?.updatedAt,
+    item?.caseClosedAt,
     item?.signedOffUpdatedAt,
     item?.signedOffAt,
     item?.caseStoppedAt,
@@ -564,6 +593,8 @@ function caseRevisionTime(item) {
 function caseCompletenessScore(item) {
   if (!item) return 0;
   return [
+    item.caseClosed,
+    item.caseClosedAt,
     item.signedOffAt,
     item.caseStoppedAt,
     item.observerName,
@@ -585,6 +616,42 @@ function choosePreferredCase(existing, candidate) {
   const existingScore = caseCompletenessScore(existing);
   const candidateScore = caseCompletenessScore(candidate);
   return attachFirestoreDocIds(candidateScore > existingScore ? candidate : existing, docIds);
+}
+
+function isBlankValue(value) {
+  return value === "" || value == null;
+}
+
+function isPlainObject(value) {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function mergeCaseValue(base, overlay) {
+  if (Array.isArray(base) || Array.isArray(overlay)) {
+    const overlayArray = Array.isArray(overlay) ? overlay : [];
+    const baseArray = Array.isArray(base) ? base : [];
+    return overlayArray.length ? overlayArray : baseArray;
+  }
+  if (isPlainObject(base) || isPlainObject(overlay)) {
+    const result = {};
+    const keys = new Set([...Object.keys(base || {}), ...Object.keys(overlay || {})]);
+    keys.forEach((key) => {
+      result[key] = mergeCaseValue(base?.[key], overlay?.[key]);
+    });
+    return result;
+  }
+  return isBlankValue(overlay) && !isBlankValue(base) ? base : overlay;
+}
+
+function mergeCaseRecords(remote, local) {
+  if (!remote) return normalizeCaseLifecycle({ ...(local || {}) });
+  if (remote.deleted || remote.deletedAt) return remote;
+  const localIsNewer = caseRevisionTime(local) >= caseRevisionTime(remote);
+  const base = localIsNewer ? remote : local;
+  const overlay = localIsNewer ? local : remote;
+  const merged = normalizeCaseLifecycle(mergeCaseValue(base || {}, overlay || {}));
+  const docIds = [...new Set([...(remote._firestoreDocIds || [remote._firestoreDocId]).filter(Boolean), ...(local?._firestoreDocIds || [local?._firestoreDocId]).filter(Boolean)])];
+  return attachFirestoreDocIds(merged, docIds);
 }
 
 function attachFirestoreDocIds(item, docIds) {
@@ -638,7 +705,7 @@ function mergeRemoteCases(remoteCases) {
       return;
     }
 
-    merged.push(choosePreferredCase(remote, local));
+    merged.push(mergeCaseRecords(remote, local));
   });
 
   cloudSync.pendingCaseHashes.forEach((_, id) => {
@@ -793,7 +860,25 @@ function syncCasesToCloud(changedCaseId) {
     }
     const item = state.cases.find((entry) => entry.id === id);
     if (!item?.id) return;
-    cloudSync.db.collection(FIRESTORE_COLLECTION).doc(caseFirestoreDocId(item)).set(item, { merge: true }).then(() => {
+    const ref = cloudSync.db.collection(FIRESTORE_COLLECTION).doc(caseFirestoreDocId(item));
+    ref.get().then((doc) => {
+      const remote = doc.exists ? caseWithFirestoreDocId(doc.data(), doc.id) : null;
+      if (remote?.deleted || remote?.deletedAt) {
+        markCaseDeleted(item.id, remote.deletedAt || remote.updatedAt);
+        removeCaseLocally(item.id, remote.deletedAt || remote.updatedAt);
+        return null;
+      }
+      const merged = mergeCaseRecords(remote, item);
+      return ref.set(merged, { merge: true }).then(() => merged);
+    }).then((merged) => {
+      if (!merged) return;
+      const index = state.cases.findIndex((entry) => entry.id === merged.id);
+      if (index >= 0) {
+        state.cases[index] = attachFirestoreDocIds(merged, merged._firestoreDocIds || [caseFirestoreDocId(item)]);
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(state.cases));
+      }
+      cloudSync.pendingCaseHashes.delete(merged.id);
+      savePendingCaseHashes();
       if (cloudSync.status !== "Cloud sync error") {
         cloudSync.status = "Cloud sync on";
         cloudSync.error = "";
@@ -1060,7 +1145,10 @@ function createScreen() {
           includeInCodeStrokeKpi: "",
           signedOffAt: "",
           signedOffUpdatedAt: "",
-          signoffAttempted: false
+          signoffAttempted: false,
+          caseClosed: false,
+          caseClosedAt: "",
+          caseClosedType: ""
         };
         state.cases.unshift(newCase);
         state.activeCaseId = newCase.id;
@@ -1145,11 +1233,11 @@ function liveTracker(item, placement = "compact") {
     h("div", { class: "tracker-head" }, [
       h("div", {}, [
         h("strong", {}, item.patientName),
-        h("small", {}, item.caseStopped ? `Stopped: ${item.caseStoppedReason || "Reason pending"}` : item.signedOffAt ? "Case signed off" : nextStep ? `Next: ${nextStep[1]}` : "Pathway complete")
+        h("small", {}, item.caseStopped || item.caseClosedType === "stopped" ? `Stopped: ${item.caseStoppedReason || "Reason pending"}` : item.signedOffAt || item.caseClosed ? "Case signed off" : nextStep ? `Next: ${nextStep[1]}` : "Pathway complete")
       ]),
       h("div", { class: "tracker-score" }, [
         h("em", {}, elapsed),
-        h("span", {}, item.caseStopped || item.signedOffAt ? "Final duration" : status.label)
+        h("span", {}, item.caseStopped || item.signedOffAt || item.caseClosed ? "Final duration" : status.label)
       ])
     ]),
     h("div", { class: "tracker-progress" }, h("i", { style: `width:${percent}%` })),
@@ -1382,7 +1470,7 @@ function editCaseScreen() {
 }
 
 function timerCard(item) {
-  const closed = Boolean(item.caseStopped || item.signedOffAt);
+  const closed = Boolean(item.caseStopped || item.signedOffAt || item.caseClosed);
   const elapsed = formatDuration(caseEndTime(item).getTime() - new Date(item.arrivalTime).getTime());
   return h("div", { class: "timer-card" }, [
     h("div", { class: "timer-headline" }, [
@@ -1391,7 +1479,7 @@ function timerCard(item) {
         h("strong", {}, elapsed)
       ]),
       closed
-        ? h("span", { class: `tag ${item.caseStopped ? "grey" : ""}` }, item.caseStopped ? "STOPPED" : "SIGNED OFF")
+        ? h("span", { class: `tag ${item.caseStopped || item.caseClosedType === "stopped" ? "grey" : ""}` }, item.caseStopped || item.caseClosedType === "stopped" ? "STOPPED" : "SIGNED OFF")
         : h("button", { class: "stop-case-btn", onclick: () => openStopCase(item.id) }, "STOP CASE")
     ]),
     h("div", { class: "timer-meta" }, [
@@ -5083,8 +5171,8 @@ function metricStatus(minutes, target, critical) {
 }
 
 function caseStatus(item) {
-  if (item.caseStopped) return { label: "Stopped", className: "grey" };
-  if (item.signedOffAt) return { label: "Signed Off", className: "" };
+  if (item.caseStopped || item.caseClosedType === "stopped") return { label: "Stopped", className: "grey" };
+  if (item.signedOffAt || item.caseClosed) return { label: "Signed Off", className: "" };
   return performanceStatus(item);
 }
 
@@ -5101,6 +5189,7 @@ function performanceStatus(item) {
 function caseEndTime(item) {
   if (item.caseStoppedAt) return new Date(item.caseStoppedAt);
   if (item.signedOffAt) return new Date(item.signedOffAt);
+  if (item.caseClosedAt) return new Date(item.caseClosedAt);
   return new Date();
 }
 
@@ -5117,7 +5206,7 @@ function todaysCases() {
 function liveCases() {
   const priority = { Critical: 0, Delayed: 1, "On Track": 2 };
   return state.cases
-    .filter((item) => !item.caseStopped && !item.signedOffAt)
+    .filter((item) => !item.caseStopped && !item.signedOffAt && !item.caseClosed)
     .sort((a, b) => {
       const statusDiff = (priority[caseStatus(a).label] ?? 3) - (priority[caseStatus(b).label] ?? 3);
       if (statusDiff) return statusDiff;
