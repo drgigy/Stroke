@@ -533,6 +533,23 @@ function deletionTombstone(caseId, deletedAt = new Date().toISOString()) {
   };
 }
 
+function closureMarker(item) {
+  const closed = normalizeCaseLifecycle({ ...(item || {}) });
+  if (!closed?.id || !closed.caseClosed) return null;
+  return {
+    id: closed.id,
+    caseClosed: true,
+    caseClosedType: closed.caseClosedType || (closed.caseStopped ? "stopped" : "signed-off"),
+    caseClosedAt: closed.caseClosedAt || closed.signedOffAt || closed.caseStoppedAt || closed.updatedAt || new Date().toISOString(),
+    signedOffAt: closed.caseClosedType === "signed-off" ? (closed.signedOffAt || closed.caseClosedAt) : (closed.signedOffAt || ""),
+    caseStopped: closed.caseClosedType === "stopped" || Boolean(closed.caseStopped),
+    caseStoppedAt: closed.caseClosedType === "stopped" ? (closed.caseStoppedAt || closed.caseClosedAt) : (closed.caseStoppedAt || ""),
+    updatedAt: closed.updatedAt || closed.caseClosedAt || new Date().toISOString(),
+    createdAt: closed.createdAt || closed.arrivalTime || closed.caseClosedAt || new Date().toISOString(),
+    closureMarker: true
+  };
+}
+
 function normalizeCaseLifecycle(item) {
   if (!item || item.deleted || item.deletedAt) return item;
   if (item.caseStopped || item.caseStoppedAt || item.caseClosedType === "stopped") {
@@ -624,11 +641,16 @@ function isBlankValue(value, key = "") {
   return false;
 }
 
+function isStickyTrueKey(key) {
+  return ["caseClosed", "caseStopped", "signoffAttempted"].includes(key);
+}
+
 function isPlainObject(value) {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
 function mergeCaseValue(base, overlay, key = "") {
+  if (isStickyTrueKey(key) && base === true && overlay !== true) return true;
   if (Array.isArray(base) || Array.isArray(overlay)) {
     const overlayArray = Array.isArray(overlay) ? overlay : [];
     const baseArray = Array.isArray(base) ? base : [];
@@ -870,19 +892,21 @@ function syncCasesToCloud(changedCaseId) {
     const item = state.cases.find((entry) => entry.id === id);
     if (!item?.id) return;
     const ref = cloudSync.db.collection(FIRESTORE_COLLECTION).doc(caseFirestoreDocId(item));
-    const writeLocalCase = () => ref.set(normalizeCaseLifecycle(item), { merge: true }).then(() => normalizeCaseLifecycle(item));
-    const writeMergedCase = item._firestoreDocId
-      ? ref.get().then((doc) => {
-      const remote = doc.exists ? caseWithFirestoreDocId(doc.data(), doc.id) : null;
+    const writeMergedCase = ref.get().catch(() => null).then((doc) => {
+      const remote = doc?.exists ? caseWithFirestoreDocId(doc.data(), doc.id) : null;
       if (remote?.deleted || remote?.deletedAt) {
         markCaseDeleted(item.id, remote.deletedAt || remote.updatedAt);
         removeCaseLocally(item.id, remote.deletedAt || remote.updatedAt);
         return null;
       }
       const merged = mergeCaseRecords(remote, item);
-      return ref.set(merged, { merge: true }).then(() => merged);
-    })
-      : writeLocalCase();
+      return ref.set(merged, { merge: true })
+        .then(() => {
+          const marker = closureMarker(merged);
+          return marker ? cloudSync.db.collection(FIRESTORE_COLLECTION).doc(merged.id).set(marker, { merge: true }) : null;
+        })
+        .then(() => merged);
+    });
     writeMergedCase.then((merged) => {
       if (!merged) return;
       const index = state.cases.findIndex((entry) => entry.id === merged.id);
@@ -1751,6 +1775,9 @@ function signoffPanel(item, missing) {
         const now = new Date().toISOString();
         if (item.signedOffAt) item.signedOffUpdatedAt = now;
         else item.signedOffAt = now;
+        item.caseClosed = true;
+        item.caseClosedType = "signed-off";
+        item.caseClosedAt = item.signedOffAt;
       }
       saveCases(item.id);
       render();
@@ -4390,6 +4417,9 @@ function stopModal() {
           item.caseStoppedAt = item.caseStoppedAt || new Date().toISOString();
           item.caseStoppedReason = form.get("caseStoppedReason");
           item.caseStoppedComment = form.get("caseStoppedComment").trim();
+          item.caseClosed = true;
+          item.caseClosedType = "stopped";
+          item.caseClosedAt = item.caseStoppedAt;
           saveCases(item.id);
         }
         state.stopTarget = null;
