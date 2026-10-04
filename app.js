@@ -314,7 +314,15 @@ setInterval(() => {
 }, 1000);
 
 if ("serviceWorker" in navigator) {
-  navigator.serviceWorker.register("./service-worker.js").catch(() => {});
+  let reloadingForNewWorker = false;
+  navigator.serviceWorker.addEventListener("controllerchange", () => {
+    if (reloadingForNewWorker) return;
+    reloadingForNewWorker = true;
+    window.location.reload();
+  });
+  navigator.serviceWorker.register("./service-worker.js")
+    .then((registration) => registration.update().catch(() => {}))
+    .catch(() => {});
 }
 
 window.addEventListener("beforeinstallprompt", (event) => {
@@ -536,16 +544,19 @@ function deletionTombstone(caseId, deletedAt = new Date().toISOString()) {
 function closureMarker(item) {
   const closed = normalizeCaseLifecycle({ ...(item || {}) });
   if (!closed?.id || !closed.caseClosed) return null;
+  const closedAt = closed.caseClosedAt || closed.signedOffAt || closed.caseStoppedAt || closed.updatedAt || new Date().toISOString();
   return {
     id: closed.id,
     caseClosed: true,
     caseClosedType: closed.caseClosedType || (closed.caseStopped ? "stopped" : "signed-off"),
-    caseClosedAt: closed.caseClosedAt || closed.signedOffAt || closed.caseStoppedAt || closed.updatedAt || new Date().toISOString(),
+    caseClosedAt: closedAt,
     signedOffAt: closed.caseClosedType === "signed-off" ? (closed.signedOffAt || closed.caseClosedAt) : (closed.signedOffAt || ""),
     caseStopped: closed.caseClosedType === "stopped" || Boolean(closed.caseStopped),
     caseStoppedAt: closed.caseClosedType === "stopped" ? (closed.caseStoppedAt || closed.caseClosedAt) : (closed.caseStoppedAt || ""),
-    updatedAt: closed.updatedAt || closed.caseClosedAt || new Date().toISOString(),
-    createdAt: closed.createdAt || closed.arrivalTime || closed.caseClosedAt || new Date().toISOString(),
+    closedLock: true,
+    closedLockAt: closed.closedLockAt || closedAt,
+    updatedAt: closed.updatedAt || closedAt,
+    createdAt: closed.createdAt || closed.arrivalTime || closedAt,
     closureMarker: true
   };
 }
@@ -558,13 +569,17 @@ function normalizeCaseLifecycle(item) {
     item.caseClosedAt = item.caseStoppedAt || item.caseClosedAt || item.updatedAt || new Date().toISOString();
     item.caseStopped = true;
     item.caseStoppedAt = item.caseStoppedAt || item.caseClosedAt;
+    item.closedLock = true;
+    item.closedLockAt = item.closedLockAt || item.caseClosedAt;
     return item;
   }
-  if (item.signedOffAt || item.caseClosedType === "signed-off" || item.caseClosed) {
+  if (item.signedOffAt || item.caseClosedType === "signed-off" || item.caseClosed || item.closedLock) {
     item.caseClosed = true;
     item.caseClosedType = "signed-off";
-    item.caseClosedAt = item.signedOffAt || item.caseClosedAt || item.updatedAt || new Date().toISOString();
+    item.caseClosedAt = item.signedOffAt || item.caseClosedAt || item.closedLockAt || item.updatedAt || new Date().toISOString();
     item.signedOffAt = item.signedOffAt || item.caseClosedAt;
+    item.closedLock = true;
+    item.closedLockAt = item.closedLockAt || item.caseClosedAt;
     return item;
   }
   if (!item.caseClosed) {
@@ -595,6 +610,7 @@ function caseRevisionTime(item) {
   return [
     item?.updatedAt,
     item?.caseClosedAt,
+    item?.closedLockAt,
     item?.signedOffUpdatedAt,
     item?.signedOffAt,
     item?.caseStoppedAt,
@@ -611,6 +627,7 @@ function caseCompletenessScore(item) {
   if (!item) return 0;
   return [
     item.caseClosed,
+    item.closedLock,
     item.caseClosedAt,
     item.signedOffAt,
     item.caseStoppedAt,
@@ -642,7 +659,7 @@ function isBlankValue(value, key = "") {
 }
 
 function isStickyTrueKey(key) {
-  return ["caseClosed", "caseStopped", "signoffAttempted"].includes(key);
+  return ["caseClosed", "caseStopped", "closedLock", "signoffAttempted"].includes(key);
 }
 
 function isPlainObject(value) {
@@ -681,8 +698,38 @@ function mergeCaseRecords(remote, local) {
   const base = localIsNewer ? remote : local;
   const overlay = localIsNewer ? local : remote;
   const merged = normalizeCaseLifecycle(mergeCaseValue(base || {}, overlay || {}));
+  applyClosedLifecycle(merged, remote, local);
   const docIds = [...new Set([...(remote._firestoreDocIds || [remote._firestoreDocId]).filter(Boolean), ...(local?._firestoreDocIds || [local?._firestoreDocId]).filter(Boolean)])];
   return attachFirestoreDocIds(merged, docIds);
+}
+
+function isCaseEffectivelyClosed(item) {
+  return Boolean(item?.deleted || item?.deletedAt || item?.closedLock || item?.caseClosed || item?.caseClosedAt || item?.signedOffAt || item?.caseStopped || item?.caseStoppedAt || item?.caseClosedType);
+}
+
+function closedLifecycleSource(...records) {
+  return records
+    .filter((item) => item && isCaseEffectivelyClosed(item))
+    .sort((a, b) => caseRevisionTime(b) - caseRevisionTime(a))[0] || null;
+}
+
+function applyClosedLifecycle(target, ...records) {
+  const source = closedLifecycleSource(target, ...records);
+  if (!target || !source) return target;
+  if (source.caseStopped || source.caseStoppedAt || source.caseClosedType === "stopped") {
+    target.caseStopped = true;
+    target.caseStoppedAt = source.caseStoppedAt || source.caseClosedAt || target.caseStoppedAt || target.caseClosedAt || new Date().toISOString();
+    target.caseClosedType = "stopped";
+    target.caseClosedAt = source.caseClosedAt || target.caseStoppedAt;
+  } else {
+    target.signedOffAt = source.signedOffAt || source.caseClosedAt || target.signedOffAt || target.caseClosedAt || new Date().toISOString();
+    target.caseClosedType = "signed-off";
+    target.caseClosedAt = source.caseClosedAt || target.signedOffAt;
+  }
+  target.caseClosed = true;
+  target.closedLock = true;
+  target.closedLockAt = source.closedLockAt || target.caseClosedAt;
+  return normalizeCaseLifecycle(target);
 }
 
 function attachFirestoreDocIds(item, docIds) {
@@ -903,7 +950,9 @@ function syncCasesToCloud(changedCaseId) {
       return ref.set(merged, { merge: true })
         .then(() => {
           const marker = closureMarker(merged);
-          return marker ? cloudSync.db.collection(FIRESTORE_COLLECTION).doc(merged.id).set(marker, { merge: true }) : null;
+          if (!marker) return null;
+          const markerDocIds = [...new Set([merged.id, ...(merged._firestoreDocIds || [merged._firestoreDocId]).filter(Boolean)])];
+          return Promise.all(markerDocIds.map((docId) => cloudSync.db.collection(FIRESTORE_COLLECTION).doc(docId).set(marker, { merge: true })));
         })
         .then(() => merged);
     });
@@ -1778,6 +1827,8 @@ function signoffPanel(item, missing) {
         item.caseClosed = true;
         item.caseClosedType = "signed-off";
         item.caseClosedAt = item.signedOffAt;
+        item.closedLock = true;
+        item.closedLockAt = item.caseClosedAt;
       }
       saveCases(item.id);
       render();
@@ -4420,6 +4471,8 @@ function stopModal() {
           item.caseClosed = true;
           item.caseClosedType = "stopped";
           item.caseClosedAt = item.caseStoppedAt;
+          item.closedLock = true;
+          item.closedLockAt = item.caseClosedAt;
           saveCases(item.id);
         }
         state.stopTarget = null;
@@ -5215,7 +5268,7 @@ function metricStatus(minutes, target, critical) {
 
 function caseStatus(item) {
   if (item.caseStopped || item.caseClosedType === "stopped") return { label: "Stopped", className: "grey" };
-  if (item.signedOffAt || item.caseClosed) return { label: "Signed Off", className: "" };
+  if (isCaseEffectivelyClosed(item)) return { label: "Signed Off", className: "" };
   return performanceStatus(item);
 }
 
@@ -5249,7 +5302,7 @@ function todaysCases() {
 function liveCases() {
   const priority = { Critical: 0, Delayed: 1, "On Track": 2 };
   return state.cases
-    .filter((item) => !item.caseStopped && !item.signedOffAt && !item.caseClosed)
+    .filter((item) => !isCaseEffectivelyClosed(item))
     .sort((a, b) => {
       const statusDiff = (priority[caseStatus(a).label] ?? 3) - (priority[caseStatus(b).label] ?? 3);
       if (statusDiff) return statusDiff;
